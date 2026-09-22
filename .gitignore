@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+data/
+*.db
+*.db-shm
+*.db-wal
+/db-intelligence-mcp
+/dist/
+opencode.json

@@ -1,0 +1,31 @@
+services:
+  db-intelligence-mcp:
+    build: .
+    image: db-intelligence-mcp:latest
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./knowledge:/app/knowledge:ro
+    # Modo stdio (default, MCP_TRANSPORT=stdio en .env): no expone puertos,
+    # se invoca como proceso interactivo con
+    # `docker compose run --rm -T db-intelligence-mcp` (no "up -d").
+    stdin_open: true
+    tty: false
+    # Modo http (MCP_TRANSPORT=http en .env, para múltiples sesiones/
+    # clientes concurrentes sobre el mismo proceso): descomentar el mapeo de
+    # puerto de abajo y usar `docker compose up -d`. Ajustar MCP_HTTP_ADDR en
+    # .env a 0.0.0.0:8080 para que escuche en todas las interfaces del
+    # contenedor (el acceso externo sigue quedando acotado por esta red y
+    # por MCP_AUTH_TOKEN).
+    # ports:
+    #   - "8080:8080"
+    networks:
+      - manager_stack_net
+
+networks:
+  # Red externa donde vive el contenedor MySQL (manager_mysql) al que este
+  # MCP se conecta. Si tu base de datos vive en otra red/host, cambia
+  # DB_HOST en .env y elimina/ajusta esta sección.
+  manager_stack_net:
+    external: true
