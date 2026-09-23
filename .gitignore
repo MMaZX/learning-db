@@ -7,4 +7,5 @@ data/
 *.db-wal
 /db-intelligence-mcp
 /dist/
+/.run/
 opencode.json

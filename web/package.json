@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "server": "tsx --env-file-if-exists=.env server/index.ts",
+    "server:watch": "tsx watch --env-file-if-exists=.env server/index.ts",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",

@@ -8,6 +8,7 @@ export interface ChatMessage {
   timestamp: number;
   toolName?: string;
   isStreaming?: boolean;
+  isError?: boolean;
 }
 
 interface ConversationPanelProps {
@@ -95,7 +96,11 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
           </div>
         ) : (
           messages.map((msg) => (
-            <div key={msg.id} className={`message-bubble message-${msg.role}`}>
+            <div
+              key={msg.id}
+              className={`message-bubble message-${msg.role}${msg.isError ? ' message-error' : ''}`}
+              role={msg.isError ? 'alert' : undefined}
+            >
               <div className="message-meta">
                 <span className="sender-tag">
                   {msg.role === 'user' ? 'USUARIO' : msg.role === 'assistant' ? 'JARVIS' : `TOOL [${msg.toolName}]`}

@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { AudioAnalyzer } from './audio/AudioAnalyzer';
 import { AudioVisualizer } from './components/AudioVisualizer';
-import { MicrophoneConsent } from './components/MicrophoneConsent';
+import { MicrophoneConsent, PrivacyBadge } from './components/MicrophoneConsent';
 import { ConversationPanel, ChatMessage } from './components/ConversationPanel';
 import { DebugPanel } from './components/DebugPanel';
 import { VoiceModeConsent } from './components/VoiceModeConsent';
@@ -9,6 +9,7 @@ import { DEFAULT_VISUALIZER_CONFIG, MicState, PrivacyMode, VisualizerConfig } fr
 import { QualityProfile } from './three/QualityController';
 import { SseParser } from './api/sse';
 import { splitForSpeech } from './api/speech';
+import { describeHttpFailure, describeServerError } from './api/errors';
 import './styles.css';
 
 export function App() {
@@ -172,68 +173,66 @@ export function App() {
     setIsJarvisSpeaking(false);
     let spokenAnswer = '';
 
-    // Attempt to call BFF /api/conversations/turns if running, otherwise provide local confirmation
+    const assistantId = `asst-${Date.now()}`;
+    const upsertAssistant = (content: string, extra: Partial<ChatMessage>) => {
+      setMessages((prev) => [
+        ...prev.filter((m) => m.id !== assistantId),
+        { id: assistantId, role: 'assistant', content, timestamp: Date.now(), ...extra },
+      ]);
+    };
+
     try {
       setConversationStatus('STREAMING');
-      const assistantId = `asst-${Date.now()}`;
-      
+
       const response = await fetch('/api/conversations/current/turns', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       }).catch(() => null);
 
-      if (response && response.ok) {
-        // Stream SSE
-        const reader = response.body?.getReader();
-        const decoder = new TextDecoder();
-        const parser = new SseParser();
-        let accumulated = '';
+      if (!response || !response.ok || !response.body) {
+        flagServerAlert();
+        const body = response ? await response.text().catch(() => '') : '';
+        upsertAssistant(describeHttpFailure(response ? response.status : null, body), { isError: true });
+        return;
+      }
 
-        if (reader) {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            for (const event of parser.push(decoder.decode(value, { stream: true }))) {
-              if (event.type === 'assistant.delta' && typeof event.data.fullText === 'string') {
-                accumulated = event.data.fullText;
-              } else if (event.type === 'assistant.completed' && typeof event.data.finalAnswer === 'string') {
-                accumulated = event.data.finalAnswer;
-                spokenAnswer = event.data.finalAnswer;
-              } else if (event.type === 'error') {
-                flagServerAlert();
-              }
-            }
-            setMessages((prev) => {
-              const withoutCurrent = prev.filter((m) => m.id !== assistantId);
-              return [
-                ...withoutCurrent,
-                {
-                  id: assistantId,
-                  role: 'assistant',
-                  content: accumulated,
-                  timestamp: Date.now(),
-                  isStreaming: true,
-                },
-              ];
-            });
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      const parser = new SseParser();
+      let accumulated = '';
+      const errors: string[] = [];
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        for (const event of parser.push(decoder.decode(value, { stream: true }))) {
+          if (event.type === 'assistant.delta' && typeof event.data.fullText === 'string') {
+            accumulated = event.data.fullText;
+          } else if (event.type === 'assistant.completed' && typeof event.data.finalAnswer === 'string') {
+            accumulated = event.data.finalAnswer;
+            spokenAnswer = event.data.finalAnswer;
+          } else if (event.type === 'error') {
+            flagServerAlert();
+            errors.push(describeServerError(event.data));
           }
         }
+        if (accumulated) upsertAssistant(accumulated, { isStreaming: true });
+      }
+
+      if (accumulated) {
+        upsertAssistant(accumulated, { isStreaming: false });
+      } else if (errors.length > 0) {
+        // Tool errors the model recovered from stay hidden; only a turn with no
+        // answer at all surfaces why it failed.
+        upsertAssistant([...new Set(errors)].join('\n'), { isError: true });
       } else {
-        if (response && !response.ok) flagServerAlert();
-        // Local interactive feedback when BFF is in setup
-        const reply: ChatMessage = {
-          id: assistantId,
-          role: 'assistant',
-          content: `Entendido, Señor. He recibido su instrucción: "${text}". El organismo visual y los analizadores de voz operan en modo ${privacyMode}.`,
-          timestamp: Date.now(),
-          isStreaming: false,
-        };
-        setMessages((prev) => [...prev, reply]);
+        upsertAssistant('No obtuve respuesta del modelo. Revise el log de OmniRoute.', { isError: true });
       }
     } catch {
       flagServerAlert();
       setConversationStatus('ERROR');
+      upsertAssistant('Se cortó la conexión con mi servidor a mitad de la respuesta.', { isError: true });
     } finally {
       setConversationStatus('IDLE');
     }
@@ -270,12 +269,7 @@ export function App() {
           </div>
 
           <div className="header-actions">
-            <MicrophoneConsent
-              micState={micState}
-              privacyMode={privacyMode}
-              onActivate={handleActivateMic}
-              onDeactivate={handleDeactivateMic}
-            />
+            <PrivacyBadge privacyMode={privacyMode} />
             <button
               className="hud-btn"
               onClick={() => setIsConsoleOpen((open) => !open)}
@@ -286,6 +280,13 @@ export function App() {
             </button>
           </div>
         </header>
+
+        {/* Minimalist bottom-center glassmorphic mic control dock */}
+        <MicrophoneConsent
+          micState={micState}
+          onActivate={handleActivateMic}
+          onDeactivate={handleDeactivateMic}
+        />
 
         <div className="hud-body">
           <DebugPanel

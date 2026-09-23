@@ -117,14 +117,19 @@ export class OmniRouteClient {
               return;
             }
 
+            let parsed: { choices?: Array<{ delta?: StreamDelta }>; error?: { message?: string } };
             try {
-              const parsed = JSON.parse(dataStr);
-              const choice = parsed.choices?.[0];
-              if (choice?.delta) {
-                yield choice.delta as StreamDelta;
-              }
+              parsed = JSON.parse(dataStr);
             } catch {
-              // Ignore partial JSON parse errors until full chunk arrives
+              continue; // Ignore partial JSON parse errors until full chunk arrives
+            }
+            // OmniRoute reports upstream failures in-band (HTTP 200) once the stream has started.
+            if (parsed.error) {
+              throw new Error(`OMNIROUTE_UPSTREAM: ${parsed.error.message || 'error sin detalle'}`);
+            }
+            const choice = parsed.choices?.[0];
+            if (choice?.delta) {
+              yield choice.delta;
             }
           }
         }
