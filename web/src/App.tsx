@@ -7,6 +7,8 @@ import { DebugPanel } from './components/DebugPanel';
 import { VoiceModeConsent } from './components/VoiceModeConsent';
 import { DEFAULT_VISUALIZER_CONFIG, MicState, PrivacyMode, VisualizerConfig } from './types/audio';
 import { QualityProfile } from './three/QualityController';
+import { SseParser } from './api/sse';
+import { splitForSpeech } from './api/speech';
 import './styles.css';
 
 export function App() {
@@ -29,6 +31,75 @@ export function App() {
   >('IDLE');
   const [isCapturingVoice, setIsCapturingVoice] = useState(false);
   const [isConsoleOpen, setIsConsoleOpen] = useState(false);
+  const [serverAlert, setServerAlert] = useState(false);
+  const [ttsAvailable, setTtsAvailable] = useState(false);
+  const [isJarvisSpeaking, setIsJarvisSpeaking] = useState(false);
+  const serverAlertTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const micActive = micState === 'CALIBRATING' || micState === 'WAITING_SILENCE' || micState === 'USER_SPEAKING';
+  // Jarvis speaking also brings the spectrum fully online, even with the mic off.
+  const spectrumActive = micActive || isJarvisSpeaking;
+  const spectrumAlert = micState === 'MIC_ERROR' || micState === 'MIC_ENDED' || serverAlert;
+
+  const flagServerAlert = useCallback(() => {
+    setServerAlert(true);
+    if (serverAlertTimer.current) clearTimeout(serverAlertTimer.current);
+    serverAlertTimer.current = setTimeout(() => setServerAlert(false), 4000);
+  }, []);
+
+  useEffect(() => () => {
+    if (serverAlertTimer.current) clearTimeout(serverAlertTimer.current);
+  }, []);
+
+  useEffect(() => {
+    fetch('/api/capabilities')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((caps) => setTtsAvailable(!!caps?.tts))
+      .catch(() => setTtsAvailable(false));
+  }, []);
+
+  const speechRunRef = useRef(0);
+
+  const speak = useCallback(
+    async (text: string) => {
+      const chunks = splitForSpeech(text);
+      if (chunks.length === 0) return;
+
+      const run = ++speechRunRef.current;
+      const synthesize = async (chunk: string): Promise<ArrayBuffer> => {
+        const response = await fetch('/api/tts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: chunk }),
+        });
+        if (!response.ok) throw new Error(`TTS HTTP ${response.status}`);
+        return response.arrayBuffer();
+      };
+
+      setConversationStatus('SPEAKING');
+      setIsJarvisSpeaking(true);
+      try {
+        // Synthesize the next chunk while the current one is playing.
+        let pending = synthesize(chunks[0]);
+        for (let i = 0; i < chunks.length; i++) {
+          const audio = await pending;
+          if (speechRunRef.current !== run) return;
+          if (i + 1 < chunks.length) pending = synthesize(chunks[i + 1]);
+          await analyzer.playSpeech(audio);
+          if (speechRunRef.current !== run) return;
+        }
+      } catch (err) {
+        console.error('Error synthesizing speech:', err);
+        flagServerAlert();
+      } finally {
+        if (speechRunRef.current === run) {
+          setIsJarvisSpeaking(false);
+          setConversationStatus('IDLE');
+        }
+      }
+    },
+    [analyzer, flagServerAlert]
+  );
 
   useEffect(() => {
     analyzer.onStateChange((newState) => {
@@ -95,6 +166,12 @@ export function App() {
     setMessages((prev) => [...prev, userMsg]);
     setConversationStatus('ROUTING');
 
+    // A new question interrupts whatever Jarvis is still saying.
+    speechRunRef.current++;
+    analyzer.stopSpeech();
+    setIsJarvisSpeaking(false);
+    let spokenAnswer = '';
+
     // Attempt to call BFF /api/conversations/turns if running, otherwise provide local confirmation
     try {
       setConversationStatus('STREAMING');
@@ -110,13 +187,23 @@ export function App() {
         // Stream SSE
         const reader = response.body?.getReader();
         const decoder = new TextDecoder();
+        const parser = new SseParser();
         let accumulated = '';
 
         if (reader) {
           while (true) {
             const { done, value } = await reader.read();
             if (done) break;
-            accumulated += decoder.decode(value);
+            for (const event of parser.push(decoder.decode(value, { stream: true }))) {
+              if (event.type === 'assistant.delta' && typeof event.data.fullText === 'string') {
+                accumulated = event.data.fullText;
+              } else if (event.type === 'assistant.completed' && typeof event.data.finalAnswer === 'string') {
+                accumulated = event.data.finalAnswer;
+                spokenAnswer = event.data.finalAnswer;
+              } else if (event.type === 'error') {
+                flagServerAlert();
+              }
+            }
             setMessages((prev) => {
               const withoutCurrent = prev.filter((m) => m.id !== assistantId);
               return [
@@ -133,6 +220,7 @@ export function App() {
           }
         }
       } else {
+        if (response && !response.ok) flagServerAlert();
         // Local interactive feedback when BFF is in setup
         const reply: ChatMessage = {
           id: assistantId,
@@ -144,9 +232,14 @@ export function App() {
         setMessages((prev) => [...prev, reply]);
       }
     } catch {
+      flagServerAlert();
       setConversationStatus('ERROR');
     } finally {
       setConversationStatus('IDLE');
+    }
+
+    if (ttsAvailable && spokenAnswer.trim()) {
+      await speak(spokenAnswer);
     }
   };
 
@@ -165,6 +258,8 @@ export function App() {
       <div className="stage">
         <AudioVisualizer
           analyzer={analyzer}
+          micActive={spectrumActive}
+          alert={spectrumAlert}
           onQualityChange={handleQualityChange}
         />
 

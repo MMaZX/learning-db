@@ -12,6 +12,7 @@ export class AudioAnalyzer {
   private calibrator: NoiseCalibrator;
   private extractor: AudioFeatureExtractor | null = null;
   private config: VisualizerConfig;
+  private speechSource: AudioBufferSourceNode | null = null;
 
   // Pre-allocated typed arrays for zero-allocation updates
   private timeDomainBuffer: Uint8Array<ArrayBuffer>;
@@ -65,9 +66,8 @@ export class AudioAnalyzer {
     }
   }
 
-  public async startMicrophone(): Promise<void> {
-    this.setState('REQUESTING_PERMISSION');
-
+  // Shared graph for every source (microphone and Jarvis' own voice).
+  private async ensureAudioGraph(): Promise<AudioContext> {
     if (!this.audioContext) {
       const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
       this.audioContext = new AudioContextClass();
@@ -85,13 +85,59 @@ export class AudioAnalyzer {
       this.frequencyBuffer = new Uint8Array(new ArrayBuffer(this.analyserNode.frequencyBinCount));
     }
 
-    this.extractor = new AudioFeatureExtractor(
-      this.audioContext.sampleRate,
-      this.analyserNode.fftSize,
-      this.config
-    );
+    if (!this.extractor) {
+      this.extractor = new AudioFeatureExtractor(
+        this.audioContext.sampleRate,
+        this.analyserNode.fftSize,
+        this.config
+      );
+    }
 
-    const micSource = new MicrophoneAudioSource(this.audioContext);
+    return this.audioContext;
+  }
+
+  public get isSpeaking(): boolean {
+    return this.speechSource !== null;
+  }
+
+  /**
+   * Plays synthesized speech through the speakers and through the analyser, so
+   * the spectrum reacts to Jarvis' voice. Resolves when playback ends.
+   */
+  public async playSpeech(audio: ArrayBuffer): Promise<void> {
+    const context = await this.ensureAudioGraph();
+    this.stopSpeech();
+
+    const buffer = await context.decodeAudioData(audio);
+    const source = context.createBufferSource();
+    source.buffer = buffer;
+    source.connect(this.analyserNode!);
+    source.connect(context.destination);
+    this.speechSource = source;
+
+    await new Promise<void>((resolve) => {
+      source.onended = () => {
+        source.disconnect();
+        if (this.speechSource === source) this.speechSource = null;
+        resolve();
+      };
+      source.start();
+    });
+  }
+
+  public stopSpeech(): void {
+    if (this.speechSource) {
+      const source = this.speechSource;
+      this.speechSource = null;
+      source.stop();
+    }
+  }
+
+  public async startMicrophone(): Promise<void> {
+    this.setState('REQUESTING_PERMISSION');
+
+    const context = await this.ensureAudioGraph();
+    const micSource = new MicrophoneAudioSource(context);
     try {
       await micSource.start();
     } catch (err) {
@@ -165,6 +211,7 @@ export class AudioAnalyzer {
   }
 
   public async destroy(): Promise<void> {
+    this.stopSpeech();
     if (this.activeSource) {
       await this.activeSource.destroy();
       this.activeSource = null;

@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { McpClient } from './clients/mcpClient.js';
 import { OmniRouteClient } from './clients/omnirouteClient.js';
+import { VoiceboxClient, VoiceboxError } from './clients/voiceboxClient.js';
 import { SseStreamWriter } from './http/streaming.js';
 import { runToolLoop } from './orchestration/toolLoop.js';
 import { CapabilitiesResponse } from './types/protocol.js';
@@ -24,6 +25,14 @@ const omniClient = new OmniRouteClient({
   baseUrl: config.omnirouteBaseUrl,
   apiKey: config.omnirouteApiKey,
   timeoutMs: config.chatTurnTimeoutMs,
+});
+
+const voiceboxClient = new VoiceboxClient({
+  baseUrl: config.voiceboxUrl,
+  profileId: config.voiceboxProfileId,
+  language: config.voiceboxLanguage,
+  engine: config.voiceboxEngine,
+  modelSize: config.voiceboxModelSize,
 });
 
 const server = http.createServer(async (req, res) => {
@@ -47,7 +56,7 @@ const server = http.createServer(async (req, res) => {
       chat: true,
       mcp: true,
       sttExperimental: config.voiceExperimentalEnabled,
-      tts: !!config.omnirouteTtsModel,
+      tts: voiceboxClient.isConfigured,
       limits: {
         maxDurationMs: config.omnirouteSttMaxDurationMs,
         maxBytes: config.omnirouteSttMaxBytes,
@@ -106,7 +115,46 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 4. Serve Static Frontend Files from dist/
+  // 4. Text-to-speech via local Voicebox (GPU) → audio/wav
+  if (pathname === '/api/tts' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => {
+      body += chunk;
+      if (body.length > 65536) {
+        req.destroy();
+      }
+    });
+
+    req.on('end', async () => {
+      try {
+        const parsed = JSON.parse(body || '{}');
+        const text = typeof parsed.text === 'string' ? parsed.text.trim() : '';
+        if (!text) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'El texto a sintetizar no puede estar vacío' }));
+          return;
+        }
+        if (text.length > config.ttsMaxChars) {
+          res.writeHead(413, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: `El texto supera ${config.ttsMaxChars} caracteres` }));
+          return;
+        }
+
+        const wav = await voiceboxClient.synthesize(text);
+        res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.byteLength });
+        res.end(Buffer.from(wav));
+      } catch (err: unknown) {
+        const status = err instanceof VoiceboxError ? err.status : 500;
+        if (!res.headersSent) {
+          res.writeHead(status, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: (err as Error).message }));
+        }
+      }
+    });
+    return;
+  }
+
+  // 5. Serve Static Frontend Files from dist/
   if (fs.existsSync(distDir)) {
     let filePath = path.join(distDir, pathname === '/' ? 'index.html' : pathname);
     if (!fs.existsSync(filePath)) {
@@ -142,6 +190,7 @@ server.listen(config.bffPort, config.bffHost, () => {
   console.log(`[Jarvis BFF] Servidor escuchando en http://${config.bffHost}:${config.bffPort}`);
   console.log(`[Jarvis BFF] Conectando a MCP Go en: ${config.jarvisMcpUrl}`);
   console.log(`[Jarvis BFF] Conectando a OmniRoute en: ${config.omnirouteBaseUrl}`);
+  console.log(`[Jarvis BFF] Voz Voicebox en: ${config.voiceboxUrl} (${voiceboxClient.isConfigured ? 'perfil configurado' : 'sin VOICEBOX_PROFILE_ID'})`);
 });
 
 process.on('SIGINT', () => {

@@ -5,16 +5,24 @@ import { QualityProfile } from '../three/QualityController';
 
 interface AudioVisualizerProps {
   analyzer: AudioAnalyzer;
+  /** Microphone live: completes the spectrum boot sequence. */
+  micActive?: boolean;
+  /** Microphone or server error: switches the spectrum to the alert palette. */
+  alert?: boolean;
   onQualityChange?: (profile: QualityProfile, avgFps: number) => void;
 }
 
 export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
   analyzer,
+  micActive = false,
+  alert = false,
   onQualityChange,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<AudioScene | null>(null);
   const [webGlError, setWebGlError] = useState<string | null>(null);
+  const visualStateRef = useRef({ micActive, alert });
+  visualStateRef.current = { micActive, alert };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -22,6 +30,8 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
     try {
       const scene = new AudioScene(containerRef.current, analyzer.features);
       sceneRef.current = scene;
+      scene.setMicActive(visualStateRef.current.micActive);
+      scene.setAlert(visualStateRef.current.alert);
       scene.start();
 
       // Sync quality updates
@@ -55,6 +65,14 @@ export const AudioVisualizer: React.FC<AudioVisualizerProps> = ({
       setWebGlError(error.message || 'WebGL2 Context could not be initialized');
     }
   }, [analyzer, onQualityChange]);
+
+  useEffect(() => {
+    sceneRef.current?.setMicActive(micActive);
+  }, [micActive]);
+
+  useEffect(() => {
+    sceneRef.current?.setAlert(alert);
+  }, [alert]);
 
   if (webGlError) {
     return (

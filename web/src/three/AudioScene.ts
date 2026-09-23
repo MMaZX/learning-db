@@ -5,6 +5,8 @@ import { ParticleField } from './ParticleField';
 import { HoloShell } from './HoloShell';
 import { PostProcessingManager } from './PostProcessing';
 import { QualityController, QualityProfile } from './QualityController';
+import { SpectrumDriver } from './SpectrumDriver';
+import { AmbientSparks, OrbitalRing } from './Ambience';
 
 export class AudioScene {
   private container: HTMLElement;
@@ -14,9 +16,14 @@ export class AudioScene {
   private camera: THREE.PerspectiveCamera;
   private clock: THREE.Clock;
 
+  private driver: SpectrumDriver;
+  // Everything that spins with the spectrum; the orbital ring stays camera-facing.
+  private root: THREE.Group;
   private sphere: AudioSphere;
   private particles: ParticleField;
   private shell: HoloShell;
+  private sparks: AmbientSparks;
+  private ring: OrbitalRing;
   private postProcessing: PostProcessingManager;
   public readonly qualityController: QualityController;
 
@@ -62,14 +69,24 @@ export class AudioScene {
     this.container.appendChild(this.renderer.domElement);
 
     // 4. Instantiation of 3D entities
-    this.sphere = new AudioSphere();
-    this.scene.add(this.sphere.mesh);
+    this.driver = new SpectrumDriver();
+    this.root = new THREE.Group();
+    this.scene.add(this.root);
+
+    this.sphere = new AudioSphere(0.75);
+    this.root.add(this.sphere.mesh);
 
     this.particles = new ParticleField(24000, this.qualityController.profile.particleCount);
-    this.scene.add(this.points);
+    this.root.add(this.points);
 
     this.shell = new HoloShell();
-    this.scene.add(this.shell.group);
+    this.root.add(this.shell.group);
+
+    this.sparks = new AmbientSparks();
+    this.root.add(this.sparks.points);
+
+    this.ring = new OrbitalRing();
+    this.scene.add(this.ring.points);
     this.syncPixelRatio(this.qualityController.profile.pixelRatio);
 
     // 5. Post-Processing Pipeline
@@ -90,6 +107,7 @@ export class AudioScene {
     if (typeof window !== 'undefined' && window.matchMedia) {
       this.mediaQueryList = window.matchMedia('(prefers-reduced-motion: reduce)');
       this.prefersReducedMotion = this.mediaQueryList.matches;
+      this.driver.setReducedMotion(this.prefersReducedMotion);
       this.mediaQueryList.addEventListener('change', this.handleReducedMotionChange);
     }
 
@@ -111,7 +129,18 @@ export class AudioScene {
 
   private handleReducedMotionChange = (e: MediaQueryListEvent) => {
     this.prefersReducedMotion = e.matches;
+    this.driver.setReducedMotion(e.matches);
   };
+
+  /** Microphone live: completes the boot sequence (filaments → cyan → HUD → active). */
+  public setMicActive(active: boolean): void {
+    this.driver.setMicActive(active);
+  }
+
+  /** Switches the spectrum to the magenta alert palette. */
+  public setAlert(active: boolean): void {
+    this.driver.setAlert(active);
+  }
 
   private applyQualityProfile(profile: QualityProfile): void {
     const width = this.container.clientWidth || 800;
@@ -126,6 +155,8 @@ export class AudioScene {
   private syncPixelRatio(ratio: number): void {
     this.particles.setPixelRatio(ratio);
     this.shell.setPixelRatio(ratio);
+    this.sparks.setPixelRatio(ratio);
+    this.ring.setPixelRatio(ratio);
   }
 
   public start(): void {
@@ -148,10 +179,15 @@ export class AudioScene {
     const elapsed = this.clock.getElapsedTime();
     const now = performance.now();
 
-    // 1. Update entities with current mutable features
-    this.sphere.update(elapsed, this.features);
-    this.particles.update(elapsed, this.features);
-    this.shell.update(delta, elapsed, this.features);
+    // 1. Turn raw audio features into bounded, time-smoothed drive values
+    const drive = this.driver.update(delta, this.features);
+    this.root.rotation.y = drive.spin;
+
+    this.sphere.update(drive);
+    this.particles.update(drive);
+    this.shell.update(elapsed, drive);
+    this.sparks.update(elapsed, drive);
+    this.ring.update(delta, drive, this.prefersReducedMotion);
 
     // 2. Camera drift (disabled if reduced motion)
     if (!this.prefersReducedMotion) {
@@ -164,7 +200,7 @@ export class AudioScene {
     }
 
     // 3. Post-Processing bloom intensity update
-    this.postProcessing.setAudioLevel(this.features.smoothedVolume, this.features.onset);
+    this.postProcessing.setAudioLevel(drive.energy, drive.pulse);
 
     // 4. Render Scene
     if (this.postProcessing.isBloomEnabled) {
@@ -204,6 +240,8 @@ export class AudioScene {
     this.sphere.dispose();
     this.particles.dispose();
     this.shell.dispose();
+    this.sparks.dispose();
+    this.ring.dispose();
     this.postProcessing.dispose();
 
     // Dispose renderer and force context loss

@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import noiseChunk from '../shaders/noise.glsl?raw';
 import particlesVert from '../shaders/particles.vert.glsl?raw';
 import particlesFrag from '../shaders/particles.frag.glsl?raw';
-import { AudioFeatures } from '../types/audio';
+import { SpectrumDrive } from './SpectrumDriver';
 
 const POINTS_PER_STRAND = 8;
 export const CORE_RADIUS = 1.5;
@@ -30,7 +30,6 @@ export class ParticleField {
     const positions = new Float32Array(maxParticles * 3);
     const seeds = new Float32Array(maxParticles);
     const sizes = new Float32Array(maxParticles);
-    const phases = new Float32Array(maxParticles);
     const layers = new Float32Array(maxParticles);
     const strands = new Float32Array(maxParticles);
     const velocities = new Float32Array(maxParticles * 3);
@@ -51,7 +50,6 @@ export class ParticleField {
       const [dx, dy, dz] = randomUnitVector();
       const [vx, vy, vz] = randomUnitVector();
       const seed = Math.random();
-      const phase = Math.random() * Math.PI * 2;
       const baseSize = layer === 2 ? 0.06 + Math.random() * 0.04 : 0.045 + Math.random() * 0.04;
 
       for (let k = 0; k < POINTS_PER_STRAND; k++) {
@@ -65,7 +63,6 @@ export class ParticleField {
         velocities[i3 + 1] = vy * 0.3;
         velocities[i3 + 2] = vz * 0.3;
         seeds[i] = seed;
-        phases[i] = phase;
         layers[i] = layer;
         sizes[i] = baseSize;
         strands[i] = k / (POINTS_PER_STRAND - 1);
@@ -75,7 +72,6 @@ export class ParticleField {
     this.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     this.geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
     this.geometry.setAttribute('aSize', new THREE.BufferAttribute(sizes, 1));
-    this.geometry.setAttribute('aPhase', new THREE.BufferAttribute(phases, 1));
     this.geometry.setAttribute('aLayer', new THREE.BufferAttribute(layers, 1));
     this.geometry.setAttribute('aStrand', new THREE.BufferAttribute(strands, 1));
     this.geometry.setAttribute('aVelocity', new THREE.BufferAttribute(velocities, 3));
@@ -86,14 +82,16 @@ export class ParticleField {
       vertexShader: noiseChunk + particlesVert,
       fragmentShader: particlesFrag,
       uniforms: {
-        uTime: { value: 0 },
-        uVolume: { value: 0 },
+        uFlow: { value: 0 },
+        uEnergy: { value: 0 },
         uBass: { value: 0 },
-        uLowMid: { value: 0 },
         uMid: { value: 0 },
-        uHighMid: { value: 0 },
         uTreble: { value: 0 },
-        uOnset: { value: 0 },
+        uPulse: { value: 0 },
+        uBootDots: { value: 0 },
+        uBootFull: { value: 0 },
+        uAlert: { value: 0 },
+        uCoreRadius: { value: CORE_RADIUS },
         uPixelRatio: { value: 1 },
       },
       transparent: true,
@@ -118,16 +116,17 @@ export class ParticleField {
     this.material.uniforms.uPixelRatio.value = ratio;
   }
 
-  public update(elapsed: number, features: AudioFeatures): void {
+  public update(drive: SpectrumDrive): void {
     const uniforms = this.material.uniforms;
-    uniforms.uTime.value = elapsed;
-    uniforms.uVolume.value = features.volume;
-    uniforms.uBass.value = features.bass;
-    uniforms.uLowMid.value = features.lowMid;
-    uniforms.uMid.value = features.mid;
-    uniforms.uHighMid.value = features.highMid;
-    uniforms.uTreble.value = features.treble;
-    uniforms.uOnset.value = features.onset;
+    uniforms.uFlow.value = drive.flow;
+    uniforms.uEnergy.value = drive.energy;
+    uniforms.uBass.value = drive.bass;
+    uniforms.uMid.value = drive.mid;
+    uniforms.uTreble.value = drive.treble;
+    uniforms.uPulse.value = drive.pulse;
+    uniforms.uBootDots.value = drive.bootDots;
+    uniforms.uBootFull.value = drive.bootFull;
+    uniforms.uAlert.value = drive.alert;
   }
 
   public dispose(): void {

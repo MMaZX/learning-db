@@ -3,16 +3,31 @@ import dotsVert from '../shaders/shellDots.vert.glsl?raw';
 import dotsFrag from '../shaders/shellDots.frag.glsl?raw';
 import spikesVert from '../shaders/spikes.vert.glsl?raw';
 import spikesFrag from '../shaders/spikes.frag.glsl?raw';
-import { AudioFeatures } from '../types/audio';
+import { CORE_RADIUS } from './ParticleField';
+import { SpectrumDrive } from './SpectrumDriver';
 
-export const SHELL_RADIUS = 2.2;
+// Proportions measured in the reference: lattice at ~1.37x the core radius,
+// spikes start just inside it and never reach past ~1.75x.
+export const SHELL_RADIUS = CORE_RADIUS * 1.37;
+const SPIKE_START = SHELL_RADIUS * 0.9;
+const SPIKE_MAX_TIP = CORE_RADIUS * 1.75;
+const SPIKE_COUNT = 420;
 const DECAL_COLOR = 0x5ab4ff;
 const DECAL_BRIGHT = 0xd6f3ff;
+const DECAL_ALERT = 0xff4fa8;
+const DECAL_ALERT_BRIGHT = 0xffd0e8;
 const DEG = Math.PI / 180;
 
 interface DecalMaterial {
   material: THREE.LineBasicMaterial | THREE.MeshBasicMaterial;
   baseOpacity: number;
+  baseColor: THREE.Color;
+  alertColor: THREE.Color;
+}
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.min(1, Math.max(0, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
 }
 
 export class HoloShell {
@@ -33,9 +48,11 @@ export class HoloShell {
       fragmentShader: dotsFrag,
       uniforms: {
         uTime: { value: 0 },
-        uVolume: { value: 0 },
+        uEnergy: { value: 0 },
         uBass: { value: 0 },
-        uOnset: { value: 0 },
+        uPulse: { value: 0 },
+        uReveal: { value: 0 },
+        uAlert: { value: 0 },
         uPixelRatio: { value: 1 },
       },
       transparent: true,
@@ -50,17 +67,19 @@ export class HoloShell {
       fragmentShader: spikesFrag,
       uniforms: {
         uTime: { value: 0 },
-        uRadius: { value: radius },
-        uVolume: { value: 0 },
-        uBass: { value: 0 },
+        uStart: { value: SPIKE_START },
+        uMaxLength: { value: SPIKE_MAX_TIP - SPIKE_START },
+        uEnergy: { value: 0 },
+        uPulse: { value: 0 },
         uTreble: { value: 0 },
-        uOnset: { value: 0 },
+        uReveal: { value: 0 },
+        uAlert: { value: 0 },
       },
       transparent: true,
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.spikes = new THREE.LineSegments(this.buildSpikes(900), this.spikesMaterial);
+    this.spikes = new THREE.LineSegments(this.buildSpikes(SPIKE_COUNT), this.spikesMaterial);
     this.spikes.frustumCulled = false;
     this.group.add(this.spikes);
 
@@ -100,10 +119,14 @@ export class HoloShell {
     return geometry;
   }
 
+  // Each spike is two segments along the same ray: a dim body (inner → tip)
+  // and a short bright head in the middle, like the dashes in the reference.
   private buildSpikes(count: number): THREE.BufferGeometry {
-    const positions = new Float32Array(count * 6);
-    const ends = new Float32Array(count * 2);
-    const seeds = new Float32Array(count * 2);
+    const vertsPerSpike = 4;
+    const positions = new Float32Array(count * vertsPerSpike * 3);
+    const ends = new Float32Array(count * vertsPerSpike);
+    const heads = new Float32Array(count * vertsPerSpike);
+    const seeds = new Float32Array(count * vertsPerSpike);
 
     for (let i = 0; i < count; i++) {
       const z = Math.random() * 2 - 1;
@@ -111,17 +134,26 @@ export class HoloShell {
       const s = Math.sqrt(1 - z * z);
       const dir = [s * Math.cos(a), z, s * Math.sin(a)];
       const seed = Math.random();
-      for (let e = 0; e < 2; e++) {
-        const v = i * 2 + e;
+      const headStart = 0.3 + Math.random() * 0.15;
+      const layout: [number, number][] = [
+        [0, 0],
+        [1, 0],
+        [headStart, 1],
+        [headStart + 0.25, 1],
+      ];
+      layout.forEach(([end, head], e) => {
+        const v = i * vertsPerSpike + e;
         positions.set(dir, v * 3);
-        ends[v] = e;
+        ends[v] = end;
+        heads[v] = head;
         seeds[v] = seed;
-      }
+      });
     }
 
     const geometry = new THREE.BufferGeometry();
     geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     geometry.setAttribute('aEnd', new THREE.BufferAttribute(ends, 1));
+    geometry.setAttribute('aHead', new THREE.BufferAttribute(heads, 1));
     geometry.setAttribute('aSeed', new THREE.BufferAttribute(seeds, 1));
     return geometry;
   }
@@ -134,9 +166,18 @@ export class HoloShell {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.decalMaterials.push({ material, baseOpacity: opacity });
-    this.disposables.push(material);
+    this.trackDecal(material, opacity, color);
     return material;
+  }
+
+  private trackDecal(material: THREE.LineBasicMaterial | THREE.MeshBasicMaterial, opacity: number, color: number): void {
+    this.decalMaterials.push({
+      material,
+      baseOpacity: opacity,
+      baseColor: new THREE.Color(color),
+      alertColor: new THREE.Color(color === DECAL_BRIGHT ? DECAL_ALERT_BRIGHT : DECAL_ALERT),
+    });
+    this.disposables.push(material);
   }
 
   private arc(radius: number, start = 0, length = Math.PI * 2, color = DECAL_COLOR, opacity = 0.5): THREE.Line {
@@ -167,8 +208,8 @@ export class HoloShell {
       blending: THREE.AdditiveBlending,
       depthWrite: false,
     });
-    this.decalMaterials.push({ material, baseOpacity: 0.75 });
-    this.disposables.push(geometry, material);
+    this.trackDecal(material, 0.75, DECAL_BRIGHT);
+    this.disposables.push(geometry);
     return new THREE.Mesh(geometry, material);
   }
 
@@ -251,27 +292,32 @@ export class HoloShell {
     this.dotsMaterial.uniforms.uPixelRatio.value = ratio;
   }
 
-  public update(delta: number, elapsed: number, features: AudioFeatures): void {
-    this.group.rotation.y += delta * (0.035 + features.smoothedVolume * 0.05);
+  public update(elapsed: number, drive: SpectrumDrive): void {
+    // Lattice and HUD fade in mid-boot; the spike crown only once the spectrum is live.
+    const reveal = smoothstep(0.55, 0.85, drive.bootFull);
+    const spikeReveal = smoothstep(0.85, 1, drive.bootFull);
 
     const dots = this.dotsMaterial.uniforms;
     dots.uTime.value = elapsed;
-    dots.uVolume.value = features.volume;
-    dots.uBass.value = features.bass;
-    dots.uOnset.value = features.onset;
+    dots.uEnergy.value = drive.energy;
+    dots.uBass.value = drive.bass;
+    dots.uPulse.value = drive.pulse;
+    dots.uReveal.value = reveal;
+    dots.uAlert.value = drive.alert;
 
     const spikes = this.spikesMaterial.uniforms;
     spikes.uTime.value = elapsed;
-    spikes.uVolume.value = features.volume;
-    spikes.uBass.value = features.bass;
-    spikes.uTreble.value = features.treble;
-    spikes.uOnset.value = features.onset;
+    spikes.uEnergy.value = drive.energy;
+    spikes.uPulse.value = drive.pulse;
+    spikes.uTreble.value = drive.treble;
+    spikes.uReveal.value = spikeReveal;
+    spikes.uAlert.value = drive.alert;
 
-    const scale = 1 + features.bass * 0.06 + features.onset * 0.04;
-    this.decals.scale.setScalar(scale);
-    const boost = 1 + features.smoothedVolume * 0.8 + features.onset * 0.4;
-    for (const { material, baseOpacity } of this.decalMaterials) {
-      material.opacity = Math.min(1, baseOpacity * boost);
+    this.decals.scale.setScalar(1 + drive.bass * 0.02 + drive.pulse * 0.015);
+    const boost = 1 + drive.energy * 0.8 + drive.pulse * 0.4;
+    for (const { material, baseOpacity, baseColor, alertColor } of this.decalMaterials) {
+      material.opacity = Math.min(1, baseOpacity * boost) * reveal;
+      material.color.lerpColors(baseColor, alertColor, drive.alert);
     }
   }
 

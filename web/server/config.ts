@@ -10,6 +10,12 @@ export interface ServerConfig {
   omnirouteSttAllowedMime: string[];
   omnirouteTtsModel: string;
   omnirouteTtsVoice: string;
+  voiceboxUrl: string;
+  voiceboxProfileId: string;
+  voiceboxLanguage: string;
+  voiceboxEngine: string;
+  voiceboxModelSize: string;
+  ttsMaxChars: number;
   jarvisMcpUrl: string;
   jarvisMcpAuthToken: string;
   chatMaxToolRounds: number;
@@ -50,6 +56,12 @@ export function loadConfig(): ServerConfig {
     omnirouteSttAllowedMime: allowedMime,
     omnirouteTtsModel,
     omnirouteTtsVoice: env.OMNIROUTE_TTS_VOICE || 'alloy',
+    voiceboxUrl: env.VOICEBOX_URL || 'http://127.0.0.1:17493',
+    voiceboxProfileId: env.VOICEBOX_PROFILE_ID || '',
+    voiceboxLanguage: env.VOICEBOX_LANGUAGE || 'es',
+    voiceboxEngine: env.VOICEBOX_ENGINE || 'qwen',
+    voiceboxModelSize: env.VOICEBOX_MODEL_SIZE || '0.6B',
+    ttsMaxChars: parseInt(env.TTS_MAX_CHARS || '1500', 10),
     jarvisMcpUrl: env.JARVIS_MCP_URL || 'http://127.0.0.1:8080/mcp',
     jarvisMcpAuthToken: env.JARVIS_MCP_AUTH_TOKEN || '',
     chatMaxToolRounds: parseInt(env.CHAT_MAX_TOOL_ROUNDS || '6', 10),
