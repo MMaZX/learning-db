@@ -1,0 +1,11 @@
+{
+  "projectRoot": "/home/fulanito/development/mcp-bd",
+  "specPath": "/home/fulanito/development/mcp-bd/PROMPT-UI.md",
+  "planPath": "/home/fulanito/development/mcp-bd/PLAN-OMNIROUTE-JARVIS-UI.md",
+  "omnirouteSources": [
+    "https://github.com/diegosouzapw/OmniRoute/blob/HEAD/docs/routing/AUTO-COMBO.md",
+    "https://github.com/diegosouzapw/OmniRoute/blob/main/docs/openapi.yaml",
+    "https://github.com/diegosouzapw/OmniRoute/wiki/API-Reference",
+    "https://github.com/diegosouzapw/OmniRoute/wiki/MCP-Server"
+  ]
+}
