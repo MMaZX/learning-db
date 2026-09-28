@@ -11,7 +11,7 @@ import (
 func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 	s.AddTool(
 		mcp.NewTool("recordar_contexto",
-			mcp.WithDescription("PRIMERA tool que debes llamar ante cualquier petición sobre datos o procesos de negocio, especialmente al comenzar una sesión nueva. Recupera en una sola llamada la memoria VALIDADA relevante para la petición completa, aunque el usuario no use exactamente las mismas palabras con las que se guardó. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido."),
+			mcp.WithDescription("ÚNICA y PRIMERA tool que debes llamar para recuperar memoria de negocio al comenzar una sesión o tarea nueva, antes de explorar el schema o escribir SQL. Pásale la petición completa del usuario tal cual (parámetro 'tarea'), no un resumen ni una sola palabra clave: la búsqueda tolera variaciones de redacción. Resuelve el recuerdo en una sola llamada, incluida la fuente (tablas/columnas/relación/fórmula) y el alias legible de cada dato, así que no necesitas una segunda llamada a buscar_conocimiento ni a obtener_conocimiento_validado para recordar contexto: esas dos tools sirven para otra cosa (auditoría amplia y verificación puntual antes de un SQL concreto), no para el recuerdo de sesión. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido."),
 			mcp.WithString("tarea", mcp.Required(), mcp.Description("Petición completa del usuario, en lenguaje natural")),
 			mcp.WithString("contexto", mcp.Description("Área de negocio si se conoce, ej. 'ventas' o 'movimientos de stock'")),
 			mcp.WithNumber("limite", mcp.Description("Máximo de recuerdos validados a devolver"), mcp.DefaultNumber(20)),
@@ -67,7 +67,7 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 
 	s.AddTool(
 		mcp.NewTool("buscar_conocimiento",
-			mcp.WithDescription("Busca en todo el conocimiento acumulado: documentación funcional, conocimiento validado, propuestas pendientes y observaciones. Cada resultado indica su nivel de confianza (documentacion | validado | propuesto | observacion/hipotesis) para que nunca se confunda una inferencia con un hecho validado. Si no aparece nada con estado 'validado' para lo que necesitas, NO asumas ni inventes de dónde sale el dato: usa aprender_del_usuario para preguntarle al humano."),
+			mcp.WithDescription("Búsqueda AMPLIA de auditoría sobre todo el conocimiento acumulado: documentación funcional, conocimiento validado, propuestas pendientes y observaciones. No es la tool de recuerdo de sesión (para eso usa recordar_contexto con la petición completa): úsala solo cuando necesites explorar qué se ha propuesto/rechazado/observado además de lo validado, ej. para revisar cobertura o depurar por qué algo no se recordó. Cada resultado indica su nivel de confianza (documentacion | validado | propuesto | observacion/hipotesis) para que nunca se confunda una inferencia con un hecho validado. Si no aparece nada con estado 'validado' para lo que necesitas, NO asumas ni inventes de dónde sale el dato: usa aprender_del_usuario para preguntarle al humano."),
 			mcp.WithString("consulta", mcp.Required(), mcp.Description("Término de búsqueda")),
 		),
 		mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, args struct {
@@ -98,7 +98,7 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 
 	s.AddTool(
 		mcp.NewTool("obtener_conocimiento_validado",
-			mcp.WithDescription("Busca conocimiento YA VALIDADO por un humano para un concepto en un contexto concreto (ej. concepto='vendedor', contexto='ventas'). Es la consulta que un agente debe hacer ANTES de generar SQL que dependa de un concepto de negocio ambiguo. Si devuelve una lista vacía, NO existe una fuente confiable para ese concepto en ese contexto: la respuesta correcta es preguntarle al usuario cómo se obtiene y usar aprender_del_usuario, nunca adivinar una columna por similitud de nombre."),
+			mcp.WithDescription("Verificación PUNTUAL, no recuerdo de sesión: confirma si existe conocimiento YA VALIDADO por un humano para un concepto exacto en un contexto exacto (ej. concepto='vendedor', contexto='ventas'), justo antes de escribir el SQL que depende de ese concepto de negocio ambiguo. Para recuperar contexto al iniciar una tarea usa recordar_contexto con la petición completa, no esta tool. Si devuelve una lista vacía, NO existe una fuente confiable para ese concepto en ese contexto: la respuesta correcta es preguntarle al usuario cómo se obtiene y usar aprender_del_usuario, nunca adivinar una columna por similitud de nombre."),
 			mcp.WithString("concepto", mcp.Required(), mcp.Description("Concepto de negocio, ej. 'vendedor', 'utilidad'")),
 			mcp.WithString("contexto", mcp.Description("Ámbito de aplicación, ej. 'ventas', 'compras', 'reportes de ventas'. El conocimiento de un contexto nunca se reutiliza automáticamente en otro.")),
 		),

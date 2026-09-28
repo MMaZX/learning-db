@@ -296,6 +296,14 @@ el binario nativo es más simple.
   llame primero a `recordar_contexto` con la petición completa. Esta tool busca
   de una vez la memoria validada relevante, tolera variaciones de palabras y
   evita volver a descubrir relaciones que ya fueron aprobadas.
+- Contrato de 1 llamada: `recordar_contexto` es la ÚNICA y PRIMERA tool para
+  recordar contexto de negocio en una sesión o tarea nueva; su respuesta ya
+  trae la fuente (tablas/columnas/relación/fórmula) y el alias resuelto de
+  cada dato, así que no hace falta una segunda llamada para recordar.
+  `buscar_conocimiento` queda para auditoría amplia (documentación +
+  propuestas + observaciones, no solo lo validado) y `obtener_conocimiento_validado`
+  para una verificación puntual de un concepto exacto justo antes de escribir
+  SQL; ninguna de las dos reemplaza a `recordar_contexto` para el recuerdo de sesión.
 - Documentación de negocio a mano: edita `knowledge/business/*.md` y
   `knowledge/index.md`. Se relee solo, sin reiniciar.
 - Enseñanza guiada en conversación: cuando el asistente te pregunte de dónde

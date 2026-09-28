@@ -91,3 +91,159 @@ func TestServerAdvertisesAndServesMemoryRecall(t *testing.T) {
 		t.Fatalf("la tool no devolvió el recuerdo esperado: %s", textContent.Text)
 	}
 }
+
+// TestRecordarContextoDescribedAsSingleRecallEntrypoint verifica el contrato
+// de T2: recordar_contexto se presenta como la única/primera tool de
+// recuerdo, y buscar_conocimiento / obtener_conocimiento_validado quedan
+// explícitamente degradadas a auditoría amplia / verificación puntual (no
+// recuerdo de sesión), sin que ninguna otra tool deje de existir.
+func TestRecordarContextoDescribedAsSingleRecallEntrypoint(t *testing.T) {
+	ctx := context.Background()
+	metadata, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+
+	mcpServer := New(&Deps{
+		Store:     metadata,
+		Knowledge: knowledge.NewStore(t.TempDir()),
+	})
+	mcpClient, err := client.NewInProcessClient(mcpServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mcpClient.Close() })
+	if err := mcpClient.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	initRequest := mcp.InitializeRequest{}
+	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ClientInfo = mcp.Implementation{Name: "test", Version: "1"}
+	if _, err := mcpClient.Initialize(ctx, initRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	tools, err := mcpClient.ListTools(ctx, mcp.ListToolsRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	descriptions := map[string]string{}
+	for _, tool := range tools.Tools {
+		descriptions[tool.Name] = tool.Description
+	}
+
+	recordar, ok := descriptions["recordar_contexto"]
+	if !ok {
+		t.Fatal("recordar_contexto no aparece en tools/list")
+	}
+	if !strings.Contains(recordar, "ÚNICA y PRIMERA") {
+		t.Fatalf("recordar_contexto ya no se describe como única/primera tool de recuerdo: %q", recordar)
+	}
+	if !strings.Contains(recordar, "no necesitas una segunda llamada") {
+		t.Fatalf("recordar_contexto no aclara que no hace falta una segunda llamada para recordar: %q", recordar)
+	}
+
+	buscar, ok := descriptions["buscar_conocimiento"]
+	if !ok {
+		t.Fatal("buscar_conocimiento no aparece en tools/list")
+	}
+	if !strings.Contains(buscar, "AMPLIA") || !strings.Contains(buscar, "No es la tool de recuerdo de sesión") {
+		t.Fatalf("buscar_conocimiento no quedó degradada a auditoría amplia: %q", buscar)
+	}
+
+	validado, ok := descriptions["obtener_conocimiento_validado"]
+	if !ok {
+		t.Fatal("obtener_conocimiento_validado no aparece en tools/list")
+	}
+	if !strings.Contains(validado, "PUNTUAL, no recuerdo de sesión") {
+		t.Fatalf("obtener_conocimiento_validado no quedó degradada a verificación puntual: %q", validado)
+	}
+
+	// T2 no quita ni renombra tools existentes: solo aclara prioridad.
+	const expectedToolCount = 20
+	if len(tools.Tools) != expectedToolCount {
+		t.Fatalf("se esperaban %d tools registradas, hay %d: %v", expectedToolCount, len(tools.Tools), toolNames(tools.Tools))
+	}
+}
+
+func toolNames(tools []mcp.Tool) []string {
+	names := make([]string, 0, len(tools))
+	for _, t := range tools {
+		names = append(names, t.Name)
+	}
+	return names
+}
+
+// TestRecordarContextoIncludesSourceAndAliasWithoutSecondCall verifica que la
+// respuesta de recordar_contexto ya trae, por cada item validado, su fuente
+// (tablas/columnas/relación) y el alias resuelto, para que no haga falta una
+// segunda llamada a obtener_conocimiento_validado solo para leer la fuente.
+func TestRecordarContextoIncludesSourceAndAliasWithoutSecondCall(t *testing.T) {
+	ctx := context.Background()
+	metadata, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+
+	id, err := metadata.ProposeKnowledge(ctx, store.Knowledge{
+		Subject: "vendedor", Context: "ventas",
+		Claim:      "ventas.codVendedor identifica al vendedor",
+		SourceJSON: `{"columnas":["ventas.codVendedor"]}`,
+		Version:    1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadata.ApproveKnowledge(ctx, id, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadata.UpsertEntityAlias(ctx, "ventas", "codVendedor", "vendedor", "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	mcpServer := New(&Deps{
+		Store:     metadata,
+		Knowledge: knowledge.NewStore(t.TempDir()),
+	})
+	mcpClient, err := client.NewInProcessClient(mcpServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mcpClient.Close() })
+	if err := mcpClient.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	initRequest := mcp.InitializeRequest{}
+	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ClientInfo = mcp.Implementation{Name: "test", Version: "1"}
+	if _, err := mcpClient.Initialize(ctx, initRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	request := mcp.CallToolRequest{}
+	request.Params.Name = "recordar_contexto"
+	request.Params.Arguments = map[string]any{
+		"tarea":    "¿quién es el vendedor de esta venta?",
+		"contexto": "ventas",
+	}
+	result, err := mcpClient.CallTool(ctx, request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError || len(result.Content) == 0 {
+		t.Fatalf("recordar_contexto falló: %+v", result)
+	}
+	textContent, ok := result.Content[0].(mcp.TextContent)
+	if !ok {
+		t.Fatalf("respuesta inesperada: %T", result.Content[0])
+	}
+	if !strings.Contains(textContent.Text, `"fuente"`) {
+		t.Fatalf("la respuesta no trae 'fuente', obligaría a una segunda llamada: %s", textContent.Text)
+	}
+	if !strings.Contains(textContent.Text, `"fuente_alias"`) || !strings.Contains(textContent.Text, `"vendedor"`) {
+		t.Fatalf("la respuesta no trae el alias resuelto de la fuente: %s", textContent.Text)
+	}
+}
