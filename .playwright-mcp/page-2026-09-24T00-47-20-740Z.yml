@@ -1,0 +1,102 @@
+- main [ref=e4]:
+  - generic [ref=e7]:
+    - heading "Applio" [level=1] [ref=e12]
+    - paragraph [ref=e17]: A simple, high-quality voice conversion tool focused on ease of use and performance.
+    - paragraph [ref=e22]:
+      - link "Support" [ref=e23] [cursor=pointer]:
+        - /url: https://discord.gg/wY7gmqTyEV
+      - text: —
+      - link "GitHub" [ref=e24] [cursor=pointer]:
+        - /url: https://github.com/IAHispano/Applio
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - generic [aria-hidden] [ref=e27]:
+          - button [ref=e28] [cursor=pointer]: Inference
+          - button [ref=e29] [cursor=pointer]: Training
+          - button [ref=e30] [cursor=pointer]: TTS
+          - button [ref=e31] [cursor=pointer]: Voice Blender
+          - button [ref=e32] [cursor=pointer]: Realtime
+          - button [ref=e33] [cursor=pointer]: Plugins
+          - button [ref=e34] [cursor=pointer]: Download
+          - button [ref=e35] [cursor=pointer]: Report a Bug
+          - button [ref=e36] [cursor=pointer]: Extra
+          - button [ref=e37] [cursor=pointer]: Settings
+          - button [ref=e38] [cursor=pointer]: TensorBoard
+        - tablist [ref=e39]:
+          - tab "Inference" [selected] [ref=e40] [cursor=pointer]
+          - tab "Training" [ref=e41] [cursor=pointer]
+          - tab "TTS" [ref=e42] [cursor=pointer]
+          - tab "Voice Blender" [ref=e43] [cursor=pointer]
+          - tab "Realtime" [ref=e44] [cursor=pointer]
+          - tab "Plugins" [ref=e45] [cursor=pointer]
+          - tab "Download" [ref=e46] [cursor=pointer]
+          - tab "Report a Bug" [ref=e47] [cursor=pointer]
+          - tab "Extra" [ref=e48] [cursor=pointer]
+          - tab "Settings" [ref=e49] [cursor=pointer]
+          - tab "TensorBoard" [ref=e50] [cursor=pointer]
+      - tabpanel [ref=e51]:
+        - generic [ref=e52]:
+          - generic [ref=e53]:
+            - heading "Model Selection" [level=2] [ref=e58]
+            - generic [ref=e60]:
+              - generic [ref=e62]:
+                - generic [ref=e63]: Voice Model
+                - paragraph [ref=e66]: Select the voice model to use for the conversion.
+                - listbox "Voice Model" [ref=e70]: eugeo_v1_150e_4950s
+              - generic [ref=e72]:
+                - generic [ref=e73]: Index File
+                - paragraph [ref=e76]: Select the index file to use for the conversion.
+                - listbox "Index File" [ref=e80]
+            - generic [ref=e81]:
+              - button "Unload Voice" [ref=e82] [cursor=pointer]
+              - button "Refresh models and indexes" [ref=e83] [cursor=pointer]
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - generic [aria-hidden] [ref=e86]:
+                - button [ref=e87] [cursor=pointer]: Single
+                - button [ref=e88] [cursor=pointer]: Batch
+              - tablist [ref=e89]:
+                - tab "Single" [selected] [ref=e90] [cursor=pointer]
+                - tab "Batch" [ref=e91] [cursor=pointer]
+            - tabpanel [ref=e92]:
+              - generic [ref=e93]:
+                - generic [ref=e94]:
+                  - generic [ref=e95]:
+                    - generic: Upload Audio
+                    - generic [ref=e96]:
+                      - button "Drop an audio file here to upload" [ref=e97] [cursor=pointer]:
+                        - generic [ref=e98]:
+                          - text: Drop Audio Here
+                          - generic [ref=e103]: "- or -"
+                          - text: Click to Upload
+                      - generic [ref=e104]:
+                        - button "Upload file" [ref=e105] [cursor=pointer]
+                        - button "Record audio" [ref=e109] [cursor=pointer]
+                  - generic [ref=e116]:
+                    - generic [ref=e117]: Select Audio
+                    - paragraph [ref=e120]: Select the audio to convert.
+                    - listbox "Select Audio" [ref=e124]: audio_eugeo_clean
+                - button "Advanced Settings ▼" [ref=e126] [cursor=pointer]:
+                  - generic [ref=e127]: Advanced Settings
+                  - generic [ref=e128]: ▼
+                - heading "Conversion" [level=2] [ref=e133]
+                - generic [ref=e135]:
+                  - generic [ref=e136] [cursor=pointer]:
+                    - checkbox "I agree to the terms of use" [ref=e137]
+                    - generic [ref=e138]: I agree to the terms of use
+                  - paragraph [ref=e141]:
+                    - text: Please ensure compliance with the terms and conditions detailed in
+                    - link "this document" [ref=e142] [cursor=pointer]:
+                      - /url: https://github.com/IAHispano/Applio/blob/main/TERMS_OF_USE.md
+                    - text: before proceeding with your inference.
+                - button "Convert" [ref=e143] [cursor=pointer]
+                - generic [ref=e144]:
+                  - generic [ref=e147]:
+                    - generic [ref=e148]: Conversion output
+                    - paragraph [ref=e151]: The output information will be displayed here.
+                    - textbox "Conversion output The output information will be displayed here." [disabled] [ref=e153]:
+                      - /placeholder: ""
+                  - generic [ref=e154]:
+                    - generic: Export Audio
+                    - generic "Empty value" [ref=e155]
+    - generic [ref=e161]: By using Applio, you agree to comply with ethical and legal standards, respect intellectual property and privacy rights, avoid harmful or prohibited uses, and accept full responsibility for any outcomes, while Applio disclaims liability and reserves the right to amend these terms.

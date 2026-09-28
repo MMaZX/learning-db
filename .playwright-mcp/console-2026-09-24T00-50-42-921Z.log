@@ -1,0 +1,4 @@
+[    3861ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://skipping-appealing-entwine.ngrok-free.dev/manifest.json:0
+[    3862ms] [ERROR] Manifest fetch from https://skipping-appealing-entwine.ngrok-free.dev/manifest.json failed, code 404 @ https://skipping-appealing-entwine.ngrok-free.dev/:0
+[    4135ms] [ERROR] Failed to load resource: the server responded with a status of 404 () @ https://skipping-appealing-entwine.ngrok-free.dev/manifest.json:0
+[    4136ms] [ERROR] Manifest fetch from https://skipping-appealing-entwine.ngrok-free.dev/manifest.json failed, code 404 @ https://skipping-appealing-entwine.ngrok-free.dev/:0

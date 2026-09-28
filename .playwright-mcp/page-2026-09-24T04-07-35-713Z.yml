@@ -1,0 +1,32 @@
+- main [ref=e3]:
+  - generic [ref=e4]:
+    - img "Organismo visualizador 3D reactivo a voz" [ref=e5]
+    - generic:
+      - generic [ref=e7]:
+        - heading "JARVIS" [level=1] [ref=e8]
+        - generic [ref=e9]: v3.8.40
+      - generic [ref=e10]:
+        - strong [ref=e13]: STRICT-PRIVATE
+        - button "Consola" [ref=e14] [cursor=pointer]
+    - navigation "Control de micrófono" [ref=e15]:
+      - button "Activar micrófono" [ref=e16] [cursor=pointer]
+      - generic [ref=e22]: Micrófono inactivo
+    - button "Abrir panel de diagnóstico" [ref=e25] [cursor=pointer]: ⚙ Telemetry & Tuning
+  - complementary [aria-hidden] [ref=e26]:
+    - region [ref=e27]:
+      - generic [ref=e28]:
+        - generic [ref=e29]:
+          - generic [ref=e30]: Consola
+          - generic [ref=e31]: IDLE
+        - generic [ref=e32]:
+          - combobox [ref=e33]
+          - button [ref=e34] [cursor=pointer]: Privado
+          - button [ref=e35] [cursor=pointer]: ✕
+      - log [ref=e36]:
+        - generic [ref=e37]:
+          - paragraph [ref=e38]: Sistemas en línea. Visualizador 3D reactivo al micrófono activo.
+          - paragraph [ref=e39]: Escriba su consulta o active el micrófono para interactuar.
+      - generic [ref=e41]:
+        - textbox [ref=e42]:
+          - /placeholder: Escriba su consulta a Jarvis...
+        - button [disabled] [ref=e43]: Enviar ↵

@@ -5,7 +5,9 @@ import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
 import { McpClient } from './clients/mcpClient.js';
 import { OmniRouteClient } from './clients/omnirouteClient.js';
-import { VoiceboxClient, VoiceboxError } from './clients/voiceboxClient.js';
+import { KokoroRvcClient, KokoroRvcError } from './clients/kokoroRvcClient.js';
+import { OllamaClient } from './clients/ollamaClient.js';
+import { GpuTurn } from './orchestration/gpuTurn.js';
 import { SseStreamWriter } from './http/streaming.js';
 import { runToolLoop } from './orchestration/toolLoop.js';
 import { CapabilitiesResponse } from './types/protocol.js';
@@ -24,16 +26,22 @@ const mcpClient = new McpClient({
 const omniClient = new OmniRouteClient({
   baseUrl: config.omnirouteBaseUrl,
   apiKey: config.omnirouteApiKey,
+  model: config.omnirouteChatModel,
   timeoutMs: config.chatTurnTimeoutMs,
 });
 
-const voiceboxClient = new VoiceboxClient({
-  baseUrl: config.voiceboxUrl,
-  profileId: config.voiceboxProfileId,
-  language: config.voiceboxLanguage,
-  engine: config.voiceboxEngine,
-  modelSize: config.voiceboxModelSize,
-});
+const voiceClient = new KokoroRvcClient({ baseUrl: config.jarvisVoiceUrl });
+
+const ollamaClient = new OllamaClient({ baseUrl: config.ollamaUrl });
+
+// Kokoro+RVC (~1.2 GB VRAM) se quedan residentes junto al LLM; ya no hace falta
+// turnarse la GPU para la voz como pasaba con Voicebox/Qwen3-TTS (~3.1 GB).
+const gpuTurn = config.gpuTurnEnabled
+  ? new GpuTurn({
+      releaseSpeech: async () => {},
+      releaseChat: () => ollamaClient.unloadAll(),
+    })
+  : null;
 
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url || '/', `http://${req.headers.host || '127.0.0.1'}`);
@@ -56,7 +64,7 @@ const server = http.createServer(async (req, res) => {
       chat: true,
       mcp: true,
       sttExperimental: config.voiceExperimentalEnabled,
-      tts: voiceboxClient.isConfigured,
+      tts: voiceClient.isConfigured,
       limits: {
         maxDurationMs: config.omnirouteSttMaxDurationMs,
         maxBytes: config.omnirouteSttMaxBytes,
@@ -103,6 +111,7 @@ const server = http.createServer(async (req, res) => {
         }
 
         const sseWriter = new SseStreamWriter(res, conversationId, turnId);
+        await gpuTurn?.forChat();
         await runToolLoop(userText, treatment, sseWriter, mcpClient, omniClient, config);
       } catch (err: unknown) {
         const error = err as Error;
@@ -115,7 +124,7 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 4. Text-to-speech via local Voicebox (GPU) → audio/wav
+  // 4. Text-to-speech via local Kokoro+RVC (GPU) → audio/wav
   if (pathname === '/api/tts' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => {
@@ -140,11 +149,11 @@ const server = http.createServer(async (req, res) => {
           return;
         }
 
-        const wav = await voiceboxClient.synthesize(text);
+        const wav = await voiceClient.synthesize(text);
         res.writeHead(200, { 'Content-Type': 'audio/wav', 'Content-Length': wav.byteLength });
         res.end(Buffer.from(wav));
       } catch (err: unknown) {
-        const status = err instanceof VoiceboxError ? err.status : 500;
+        const status = err instanceof KokoroRvcError ? err.status : 500;
         if (!res.headersSent) {
           res.writeHead(status, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: (err as Error).message }));
@@ -189,8 +198,9 @@ const server = http.createServer(async (req, res) => {
 server.listen(config.bffPort, config.bffHost, () => {
   console.log(`[Jarvis BFF] Servidor escuchando en http://${config.bffHost}:${config.bffPort}`);
   console.log(`[Jarvis BFF] Conectando a MCP Go en: ${config.jarvisMcpUrl}`);
-  console.log(`[Jarvis BFF] Conectando a OmniRoute en: ${config.omnirouteBaseUrl}`);
-  console.log(`[Jarvis BFF] Voz Voicebox en: ${config.voiceboxUrl} (${voiceboxClient.isConfigured ? 'perfil configurado' : 'sin VOICEBOX_PROFILE_ID'})`);
+  console.log(`[Jarvis BFF] Conectando a OmniRoute en: ${config.omnirouteBaseUrl} (modelo ${config.omnirouteChatModel})`);
+  console.log(`[Jarvis BFF] Voz Kokoro+RVC (Eugeo) en: ${config.jarvisVoiceUrl}`);
+  console.log(`[Jarvis BFF] Turno de GPU LLM/voz: ${gpuTurn ? `activo (Ollama en ${config.ollamaUrl})` : 'desactivado'}`);
 });
 
 process.on('SIGINT', () => {

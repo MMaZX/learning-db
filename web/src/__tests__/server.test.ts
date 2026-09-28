@@ -3,6 +3,7 @@ import { loadConfig } from '../../server/config';
 import { getToolPolicy } from '../../server/orchestration/toolPolicy';
 import { adaptMcpToOpenAiTools } from '../../server/orchestration/toolSchemaAdapter';
 import { buildJarvisSystemPrompt } from '../../server/prompts/jarvis-system';
+import { truncateToolResult } from '../../server/orchestration/toolLoop';
 
 describe('Server Config', () => {
   const originalEnv = { ...process.env };
@@ -25,10 +26,17 @@ describe('Server Config', () => {
     expect(() => loadConfig()).toThrow('CONFIG_ERROR');
   });
 
+  it('rejects "auto" for OMNIROUTE_CHAT_MODEL', () => {
+    process.env.OMNIROUTE_CHAT_MODEL = 'auto';
+    expect(() => loadConfig()).toThrow('CONFIG_ERROR');
+  });
+
   it('loads valid configuration with defaults', () => {
     delete process.env.OMNIROUTE_STT_MODEL;
     delete process.env.OMNIROUTE_TTS_MODEL;
+    delete process.env.OMNIROUTE_CHAT_MODEL;
     const config = loadConfig();
+    expect(config.omnirouteChatModel).toBe('ollama-local/jarvis-granite');
     expect(config.bffHost).toBe('127.0.0.1');
     expect(config.bffPort).toBe(4173);
     expect(config.chatMaxToolRounds).toBe(6);
@@ -87,5 +95,24 @@ describe('Jarvis System Prompt', () => {
     expect(prompt).toContain('Tratas al usuario siempre como "Señor"');
     expect(prompt).toContain('recordar_contexto');
     expect(prompt).toContain('READ ONLY');
+  });
+});
+
+describe('Tool Result Truncation', () => {
+  it('leaves results under the limit untouched', () => {
+    expect(truncateToolResult('esquema corto', 100)).toBe('esquema corto');
+  });
+
+  it('cuts long results and tells the model how to narrow the query', () => {
+    const out = truncateToolResult('x'.repeat(500), 100);
+    expect(out.startsWith('x'.repeat(100))).toBe(true);
+    expect(out).toContain('500 bytes en total');
+    expect(out).toContain('obtener_esquema_tabla');
+  });
+
+  it('never splits a multi-byte character', () => {
+    const out = truncateToolResult('ñ'.repeat(100), 51);
+    expect(out).not.toContain('�');
+    expect(out.startsWith('ñ'.repeat(25) + '\n')).toBe(true);
   });
 });

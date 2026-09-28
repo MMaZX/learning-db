@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { PrivacyMode } from '../types/audio';
+import { MarkdownRenderer } from './MarkdownRenderer';
 
 export interface ChatMessage {
   id: string;
@@ -38,6 +39,13 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
 }) => {
   const [inputText, setInputText] = useState('');
   const [treatment, setTreatment] = useState<'Señor' | 'Señora' | 'Señorita'>('Señor');
+  const messagesStreamRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (messagesStreamRef.current) {
+      messagesStreamRef.current.scrollTop = messagesStreamRef.current.scrollHeight;
+    }
+  }, [messages]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,7 +96,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
         </div>
       </div>
 
-      <div className="messages-stream" role="log" aria-live="polite">
+      <div ref={messagesStreamRef} className="messages-stream" role="log" aria-live="polite">
         {messages.length === 0 ? (
           <div className="empty-state">
             <p>Sistemas en línea. Visualizador 3D reactivo al micrófono activo.</p>
@@ -110,8 +118,7 @@ export const ConversationPanel: React.FC<ConversationPanelProps> = ({
                 </span>
               </div>
               <div className="message-body">
-                {msg.content}
-                {msg.isStreaming && <span className="cursor-blink">▋</span>}
+                <MarkdownRenderer content={msg.content} isStreaming={msg.isStreaming} />
               </div>
             </div>
           ))

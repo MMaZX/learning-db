@@ -1,0 +1,226 @@
+- main [ref=e4]:
+  - generic [ref=e7]:
+    - heading "Applio" [level=1] [ref=e12]
+    - paragraph [ref=e17]: A simple, high-quality voice conversion tool focused on ease of use and performance.
+    - paragraph [ref=e22]:
+      - link "Support" [ref=e23] [cursor=pointer]:
+        - /url: https://discord.gg/wY7gmqTyEV
+      - text: —
+      - link "GitHub" [ref=e24] [cursor=pointer]:
+        - /url: https://github.com/IAHispano/Applio
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - generic [aria-hidden] [ref=e27]:
+          - button [ref=e28] [cursor=pointer]: Inference
+          - button [ref=e29] [cursor=pointer]: Training
+          - button [ref=e30] [cursor=pointer]: TTS
+          - button [ref=e31] [cursor=pointer]: Voice Blender
+          - button [ref=e32] [cursor=pointer]: Realtime
+          - button [ref=e33] [cursor=pointer]: Plugins
+          - button [ref=e34] [cursor=pointer]: Download
+          - button [ref=e35] [cursor=pointer]: Report a Bug
+          - button [ref=e36] [cursor=pointer]: Extra
+          - button [ref=e37] [cursor=pointer]: Settings
+          - button [ref=e38] [cursor=pointer]: TensorBoard
+        - tablist [ref=e39]:
+          - tab "Inference" [ref=e40] [cursor=pointer]
+          - tab "Training" [active] [selected] [ref=e41] [cursor=pointer]
+          - tab "TTS" [ref=e42] [cursor=pointer]
+          - tab "Voice Blender" [ref=e43] [cursor=pointer]
+          - tab "Realtime" [ref=e44] [cursor=pointer]
+          - tab "Plugins" [ref=e45] [cursor=pointer]
+          - tab "Download" [ref=e46] [cursor=pointer]
+          - tab "Report a Bug" [ref=e47] [cursor=pointer]
+          - tab "Extra" [ref=e48] [cursor=pointer]
+          - tab "Settings" [ref=e49] [cursor=pointer]
+          - tab "TensorBoard" [ref=e50] [cursor=pointer]
+      - tabpanel [ref=e166]:
+        - generic [ref=e167]:
+          - generic [ref=e168]:
+            - button "Model Settings ▼" [ref=e169] [cursor=pointer]:
+              - generic [ref=e170]: Model Settings
+              - generic [ref=e171]: ▼
+            - generic [ref=e173]:
+              - generic [ref=e174]:
+                - generic [ref=e178]:
+                  - generic [ref=e179]: Model Name
+                  - paragraph [ref=e182]: Name of the new model.
+                  - listbox "Model Name" [ref=e186]: my-project
+                - generic [ref=e188]:
+                  - group [ref=e189]:
+                    - generic [ref=e190]: Sampling Rate
+                    - paragraph [ref=e193]: The sampling rate of the audio files.
+                    - generic [ref=e194]:
+                      - generic [ref=e195] [cursor=pointer]:
+                        - radio "32000" [ref=e196]
+                        - generic [ref=e197]: "32000"
+                      - generic [ref=e198] [cursor=pointer]:
+                        - radio "40000" [checked] [ref=e199]
+                        - generic [ref=e200]: "40000"
+                      - generic [ref=e201] [cursor=pointer]:
+                        - radio "48000" [ref=e202]
+                        - generic [ref=e203]: "48000"
+                  - group [ref=e204]:
+                    - generic [ref=e205]: Vocoder
+                    - generic [ref=e207]:
+                      - paragraph [ref=e208]: "Choose the vocoder for audio synthesis:"
+                      - list [ref=e209]:
+                        - listitem [ref=e210]:
+                          - strong [ref=e211]: HiFi-GAN
+                          - text: ": Default option, compatible with all clients."
+                        - listitem [ref=e212]:
+                          - strong [ref=e213]: MRF HiFi-GAN
+                          - text: ": Higher fidelity, Applio-only."
+                        - listitem [ref=e214]:
+                          - strong [ref=e215]: RefineGAN
+                          - text: ": Superior audio quality, Applio-only."
+                    - generic [ref=e216]:
+                      - generic [ref=e217] [cursor=pointer]:
+                        - radio "HiFi-GAN" [checked] [ref=e218]
+                        - generic [ref=e219]: HiFi-GAN
+                      - generic [ref=e220] [cursor=pointer]:
+                        - radio "RefineGAN" [ref=e221]
+                        - generic [ref=e222]: RefineGAN
+              - button "Advanced Settings ▼" [ref=e224] [cursor=pointer]:
+                - generic [ref=e225]: Advanced Settings
+                - generic [ref=e226]: ▼
+          - generic [ref=e227]:
+            - button "Preprocess ▼" [ref=e228] [cursor=pointer]:
+              - generic [ref=e229]: Preprocess
+              - generic [ref=e230]: ▼
+            - generic [ref=e232]:
+              - generic [ref=e233]:
+                - generic [ref=e235]:
+                  - generic [ref=e236]: Dataset Path
+                  - paragraph [ref=e239]: Path to the dataset folder.
+                  - listbox "Dataset Path" [ref=e243]: eugeo
+                - generic [ref=e245] [cursor=pointer]:
+                  - checkbox "Dataset Creator" [ref=e246]
+                  - generic [ref=e247]: Dataset Creator
+              - button "Refresh models and datasets" [ref=e248] [cursor=pointer]
+              - button "Advanced Settings ▼" [ref=e250] [cursor=pointer]:
+                - generic [ref=e251]: Advanced Settings
+                - generic [ref=e252]: ▼
+              - generic [ref=e255]:
+                - generic [ref=e256]: Preprocess output
+                - paragraph [ref=e259]: The output information will be displayed here.
+                - textbox "Preprocess output The output information will be displayed here." [disabled] [ref=e261]:
+                  - /placeholder: ""
+              - button "Preprocess Dataset" [ref=e263] [cursor=pointer]
+          - generic [ref=e264]:
+            - button "Extract ▼" [ref=e265] [cursor=pointer]:
+              - generic [ref=e266]: Extract
+              - generic [ref=e267]: ▼
+            - generic [ref=e269]:
+              - generic [ref=e271]:
+                - group [ref=e272]:
+                  - generic [ref=e273]: Pitch extraction algorithm
+                  - paragraph [ref=e276]: Pitch extraction algorithm to use for the audio conversion. The default algorithm is rmvpe, which is recommended for most cases.
+                  - generic [ref=e277]:
+                    - generic [ref=e278] [cursor=pointer]:
+                      - radio "crepe" [ref=e279]
+                      - generic [ref=e280]: crepe
+                    - generic [ref=e281] [cursor=pointer]:
+                      - radio "crepe-tiny" [ref=e282]
+                      - generic [ref=e283]: crepe-tiny
+                    - generic [ref=e284] [cursor=pointer]:
+                      - radio "rmvpe" [checked] [ref=e285]
+                      - generic [ref=e286]: rmvpe
+                - group [ref=e287]:
+                  - generic [ref=e288]: Embedder Model
+                  - paragraph [ref=e291]: Model used for learning speaker embedding.
+                  - generic [ref=e292]:
+                    - generic [ref=e293] [cursor=pointer]:
+                      - radio "contentvec" [checked] [ref=e294]
+                      - generic [ref=e295]: contentvec
+                    - generic [ref=e296] [cursor=pointer]:
+                      - radio "spin-v2" [ref=e297]
+                      - generic [ref=e298]: spin-v2
+                    - generic [ref=e299] [cursor=pointer]:
+                      - radio "custom" [ref=e300]
+                      - generic [ref=e301]: custom
+              - generic [ref=e304]:
+                - generic [ref=e305]:
+                  - generic [ref=e306]:
+                    - generic [ref=e307]: Silent training files
+                    - paragraph [ref=e310]: Adding several silent files to the training set enables the model to handle pure silence in inferred audio files. Select 0 if your dataset is clean and already contains segments of pure silence.
+                  - generic [ref=e311]:
+                    - spinbutton "number input for Silent training files" [ref=e312]: "2"
+                    - button "Reset to default value" [ref=e313] [cursor=pointer]: ↺
+                - generic [ref=e314]:
+                  - generic [ref=e315]: "0"
+                  - slider "range slider for Silent training files" [ref=e316] [cursor=pointer]: "2"
+                  - generic [ref=e317]: "10"
+              - generic [ref=e320]:
+                - generic [ref=e321]: Feature extraction output
+                - paragraph [ref=e324]: The output information will be displayed here.
+                - textbox "Feature extraction output The output information will be displayed here." [disabled] [ref=e326]:
+                  - /placeholder: ""
+              - button "Extract Features" [ref=e327] [cursor=pointer]
+          - generic [ref=e328]:
+            - button "Training ▼" [ref=e329] [cursor=pointer]:
+              - generic [ref=e330]: Training
+              - generic [ref=e331]: ▼
+            - generic [ref=e333]:
+              - generic [ref=e335]:
+                - generic [ref=e337]:
+                  - generic [ref=e338]:
+                    - generic [ref=e339]:
+                      - generic [ref=e340]: Batch Size
+                      - paragraph [ref=e343]: It's advisable to align it with the available VRAM of your GPU. A setting of 4 offers improved accuracy but slower processing, while 8 provides faster and standard results.
+                    - generic [ref=e344]:
+                      - spinbutton "number input for Batch Size" [ref=e345]: "4"
+                      - button "Reset to default value" [ref=e346] [cursor=pointer]: ↺
+                  - generic [ref=e347]:
+                    - generic [ref=e348]: "1"
+                    - slider "range slider for Batch Size" [ref=e349] [cursor=pointer]: "4"
+                    - generic [ref=e350]: "64"
+                - generic [ref=e352]:
+                  - generic [ref=e353]:
+                    - generic [ref=e354]:
+                      - generic [ref=e355]: Save Every Epoch
+                      - paragraph [ref=e358]: Determine at how many epochs the model will saved at.
+                    - generic [ref=e359]:
+                      - spinbutton "number input for Save Every Epoch" [ref=e360]: "10"
+                      - button "Reset to default value" [ref=e361] [cursor=pointer]: ↺
+                  - generic [ref=e362]:
+                    - generic [ref=e363]: "1"
+                    - slider "range slider for Save Every Epoch" [ref=e364] [cursor=pointer]: "10"
+                    - generic [ref=e365]: "100"
+                - generic [ref=e367]:
+                  - generic [ref=e368]:
+                    - generic [ref=e369]:
+                      - generic [ref=e370]: Total Epoch
+                      - paragraph [ref=e373]: Specifies the overall quantity of epochs for the model training process.
+                    - generic [ref=e374]:
+                      - spinbutton "number input for Total Epoch" [ref=e375]: "200"
+                      - button "Reset to default value" [ref=e376] [cursor=pointer]: ↺
+                  - generic [ref=e377]:
+                    - generic [ref=e378]: "1"
+                    - slider "range slider for Total Epoch" [ref=e379] [cursor=pointer]: "200"
+                    - generic [ref=e380]: "10000"
+              - button "Advanced Settings ▼" [ref=e382] [cursor=pointer]:
+                - generic [ref=e383]: Advanced Settings
+                - generic [ref=e384]: ▼
+              - generic [ref=e385]:
+                - generic [ref=e386]:
+                  - generic [ref=e387] [cursor=pointer]:
+                    - checkbox "I agree to the terms of use" [ref=e388]
+                    - generic [ref=e389]: I agree to the terms of use
+                  - paragraph [ref=e392]:
+                    - text: Please ensure compliance with the terms and conditions detailed in
+                    - link "this document" [ref=e393] [cursor=pointer]:
+                      - /url: https://github.com/IAHispano/Applio/blob/main/TERMS_OF_USE.md
+                    - text: before proceeding with your training.
+                - generic [ref=e395]:
+                  - generic [ref=e396]: Training output
+                  - paragraph [ref=e399]: The output information will be displayed here.
+                  - textbox "Training output The output information will be displayed here." [disabled] [ref=e401]:
+                    - /placeholder: ""
+              - generic [ref=e402]:
+                - button "Start Training" [ref=e403] [cursor=pointer]
+                - button "Generate Index" [ref=e404] [cursor=pointer]
+          - button "Export Model ▼" [ref=e406] [cursor=pointer]:
+            - generic [ref=e407]: Export Model
+            - generic [ref=e408]: ▼
+    - generic [ref=e161]: By using Applio, you agree to comply with ethical and legal standards, respect intellectual property and privacy rights, avoid harmful or prohibited uses, and accept full responsibility for any outcomes, while Applio disclaims liability and reserves the right to amend these terms.

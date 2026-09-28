@@ -25,33 +25,42 @@ export interface StreamDelta {
   }>;
 }
 
+export interface RouteInfo {
+  provider: string;
+  model: string;
+}
+
 export interface OmniRouteClientConfig {
   baseUrl: string;
   apiKey: string;
+  model: string;
   timeoutMs?: number;
 }
 
 export class OmniRouteClient {
   private baseUrl: string;
   private apiKey: string;
+  private model: string;
   private timeoutMs: number;
 
   constructor(config: OmniRouteClientConfig) {
     this.baseUrl = config.baseUrl.replace(/\/+$/, '');
     this.apiKey = config.apiKey;
+    this.model = config.model;
     this.timeoutMs = config.timeoutMs || 90000;
   }
 
   public async *streamChatCompletions(
     messages: ChatMessageParam[],
-    tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>
+    tools?: Array<{ type: 'function'; function: { name: string; description: string; parameters: Record<string, unknown> } }>,
+    onRouted?: (route: RouteInfo) => void
   ): AsyncGenerator<StreamDelta, void, unknown> {
     const endpoint = `${this.baseUrl}/chat/completions`;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), this.timeoutMs);
 
     const body: Record<string, unknown> = {
-      model: 'auto', // Decision no negociable #3: siempre model "auto" para chat
+      model: this.model,
       messages,
       stream: true,
     };
@@ -91,6 +100,16 @@ export class OmniRouteClient {
         throw new Error(`OMNIROUTE_ERROR: HTTP ${response.status} en ${endpoint}`);
       }
 
+      // OmniRoute anuncia en cabeceras a qué provider/modelo resolvió la petición. Algunas
+      // respuestas llegan sin ellas; entonces el modelo se toma del primer chunk.
+      const routedProvider = response.headers.get('x-omniroute-provider') || 'desconocido';
+      const routedModel = response.headers.get('x-omniroute-model');
+      let routeReported = false;
+      if (routedModel) {
+        onRouted?.({ provider: routedProvider, model: routedModel });
+        routeReported = true;
+      }
+
       if (!response.body) {
         throw new Error('OMNIROUTE_STREAM_BROKEN: Cuerpo de respuesta vacío en streaming');
       }
@@ -117,7 +136,7 @@ export class OmniRouteClient {
               return;
             }
 
-            let parsed: { choices?: Array<{ delta?: StreamDelta }>; error?: { message?: string } };
+            let parsed: { model?: string; choices?: Array<{ delta?: StreamDelta }>; error?: { message?: string } };
             try {
               parsed = JSON.parse(dataStr);
             } catch {
@@ -126,6 +145,11 @@ export class OmniRouteClient {
             // OmniRoute reports upstream failures in-band (HTTP 200) once the stream has started.
             if (parsed.error) {
               throw new Error(`OMNIROUTE_UPSTREAM: ${parsed.error.message || 'error sin detalle'}`);
+            }
+            // OmniRoute manda chunks de relleno con model "keepalive" mientras el upstream arranca.
+            if (!routeReported && parsed.model && parsed.model !== 'keepalive') {
+              onRouted?.({ provider: routedProvider, model: parsed.model });
+              routeReported = true;
             }
             const choice = parsed.choices?.[0];
             if (choice?.delta) {

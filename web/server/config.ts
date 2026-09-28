@@ -3,6 +3,7 @@ export interface ServerConfig {
   bffPort: number;
   omnirouteBaseUrl: string;
   omnirouteApiKey: string;
+  omnirouteChatModel: string;
   voiceExperimentalEnabled: boolean;
   omnirouteSttModel: string;
   omnirouteSttMaxDurationMs: number;
@@ -10,12 +11,10 @@ export interface ServerConfig {
   omnirouteSttAllowedMime: string[];
   omnirouteTtsModel: string;
   omnirouteTtsVoice: string;
-  voiceboxUrl: string;
-  voiceboxProfileId: string;
-  voiceboxLanguage: string;
-  voiceboxEngine: string;
-  voiceboxModelSize: string;
+  jarvisVoiceUrl: string;
   ttsMaxChars: number;
+  gpuTurnEnabled: boolean;
+  ollamaUrl: string;
   jarvisMcpUrl: string;
   jarvisMcpAuthToken: string;
   chatMaxToolRounds: number;
@@ -31,6 +30,11 @@ export function loadConfig(): ServerConfig {
 
   const omnirouteSttModel = env.OMNIROUTE_STT_MODEL || '';
   const omnirouteTtsModel = env.OMNIROUTE_TTS_MODEL || '';
+  const omnirouteChatModel = env.OMNIROUTE_CHAT_MODEL || 'ollama-local/jarvis-granite';
+
+  if (omnirouteChatModel.toLowerCase() === 'auto') {
+    throw new Error('CONFIG_ERROR: "auto" is invalid for OMNIROUTE_CHAT_MODEL. Use an explicit Ollama model (e.g. ollama-local/jarvis-granite).');
+  }
 
   if (omnirouteSttModel.toLowerCase() === 'auto') {
     throw new Error('CONFIG_ERROR: "auto" is invalid for OMNIROUTE_STT_MODEL. Speech models must be explicit.');
@@ -49,6 +53,7 @@ export function loadConfig(): ServerConfig {
     bffPort: parseInt(env.BFF_PORT || '4173', 10),
     omnirouteBaseUrl: env.OMNIROUTE_OPENAI_BASE_URL || 'http://127.0.0.1:20128/v1',
     omnirouteApiKey: env.OMNIROUTE_API_KEY || '',
+    omnirouteChatModel,
     voiceExperimentalEnabled: env.VOICE_EXPERIMENTAL_ENABLED === 'true',
     omnirouteSttModel,
     omnirouteSttMaxDurationMs: parseInt(env.OMNIROUTE_STT_MAX_DURATION_MS || '15000', 10),
@@ -56,12 +61,10 @@ export function loadConfig(): ServerConfig {
     omnirouteSttAllowedMime: allowedMime,
     omnirouteTtsModel,
     omnirouteTtsVoice: env.OMNIROUTE_TTS_VOICE || 'alloy',
-    voiceboxUrl: env.VOICEBOX_URL || 'http://127.0.0.1:17493',
-    voiceboxProfileId: env.VOICEBOX_PROFILE_ID || '',
-    voiceboxLanguage: env.VOICEBOX_LANGUAGE || 'es',
-    voiceboxEngine: env.VOICEBOX_ENGINE || 'qwen',
-    voiceboxModelSize: env.VOICEBOX_MODEL_SIZE || '0.6B',
+    jarvisVoiceUrl: env.JARVIS_VOICE_URL || 'http://127.0.0.1:17494',
     ttsMaxChars: parseInt(env.TTS_MAX_CHARS || '1500', 10),
+    gpuTurnEnabled: env.GPU_TURN_ENABLED === 'true',
+    ollamaUrl: env.OLLAMA_URL || 'http://127.0.0.1:11434',
     jarvisMcpUrl: env.JARVIS_MCP_URL || 'http://127.0.0.1:8080/mcp',
     jarvisMcpAuthToken: env.JARVIS_MCP_AUTH_TOKEN || '',
     chatMaxToolRounds: parseInt(env.CHAT_MAX_TOOL_ROUNDS || '6', 10),

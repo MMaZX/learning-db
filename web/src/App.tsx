@@ -8,7 +8,8 @@ import { VoiceModeConsent } from './components/VoiceModeConsent';
 import { DEFAULT_VISUALIZER_CONFIG, MicState, PrivacyMode, VisualizerConfig } from './types/audio';
 import { QualityProfile } from './three/QualityController';
 import { SseParser } from './api/sse';
-import { splitForSpeech } from './api/speech';
+import { SpeechChunker } from './api/speechText';
+import { SpeechQueue } from './api/speechQueue';
 import { describeHttpFailure, describeServerError } from './api/errors';
 import './styles.css';
 
@@ -60,47 +61,17 @@ export function App() {
   }, []);
 
   const speechRunRef = useRef(0);
+  const voiceRef = useRef<SpeechQueue | null>(null);
 
-  const speak = useCallback(
-    async (text: string) => {
-      const chunks = splitForSpeech(text);
-      if (chunks.length === 0) return;
-
-      const run = ++speechRunRef.current;
-      const synthesize = async (chunk: string): Promise<ArrayBuffer> => {
-        const response = await fetch('/api/tts', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: chunk }),
-        });
-        if (!response.ok) throw new Error(`TTS HTTP ${response.status}`);
-        return response.arrayBuffer();
-      };
-
-      setConversationStatus('SPEAKING');
-      setIsJarvisSpeaking(true);
-      try {
-        // Synthesize the next chunk while the current one is playing.
-        let pending = synthesize(chunks[0]);
-        for (let i = 0; i < chunks.length; i++) {
-          const audio = await pending;
-          if (speechRunRef.current !== run) return;
-          if (i + 1 < chunks.length) pending = synthesize(chunks[i + 1]);
-          await analyzer.playSpeech(audio);
-          if (speechRunRef.current !== run) return;
-        }
-      } catch (err) {
-        console.error('Error synthesizing speech:', err);
-        flagServerAlert();
-      } finally {
-        if (speechRunRef.current === run) {
-          setIsJarvisSpeaking(false);
-          setConversationStatus('IDLE');
-        }
-      }
-    },
-    [analyzer, flagServerAlert]
-  );
+  const synthesize = useCallback(async (chunk: string): Promise<ArrayBuffer> => {
+    const response = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: chunk }),
+    });
+    if (!response.ok) throw new Error(`TTS HTTP ${response.status}`);
+    return response.arrayBuffer();
+  }, []);
 
   useEffect(() => {
     analyzer.onStateChange((newState) => {
@@ -168,10 +139,28 @@ export function App() {
     setConversationStatus('ROUTING');
 
     // A new question interrupts whatever Jarvis is still saying.
-    speechRunRef.current++;
+    const run = ++speechRunRef.current;
+    voiceRef.current?.cancel();
     analyzer.stopSpeech();
     setIsJarvisSpeaking(false);
-    let spokenAnswer = '';
+
+    // Jarvis speaks each sentence as soon as the model finishes writing it.
+    const chunker = new SpeechChunker();
+    const voice = ttsAvailable
+      ? new SpeechQueue({
+          synthesize,
+          play: async (audio) => {
+            if (speechRunRef.current !== run) return;
+            setIsJarvisSpeaking(true);
+            await analyzer.playSpeech(audio);
+          },
+          onError: (err, chunk) => {
+            console.error(`Error sintetizando "${chunk.slice(0, 60)}":`, err);
+            flagServerAlert();
+          },
+        })
+      : null;
+    voiceRef.current = voice;
 
     const assistantId = `asst-${Date.now()}`;
     const upsertAssistant = (content: string, extra: Partial<ChatMessage>) => {
@@ -194,6 +183,7 @@ export function App() {
         flagServerAlert();
         const body = response ? await response.text().catch(() => '') : '';
         upsertAssistant(describeHttpFailure(response ? response.status : null, body), { isError: true });
+        setConversationStatus('IDLE');
         return;
       }
 
@@ -209,9 +199,12 @@ export function App() {
         for (const event of parser.push(decoder.decode(value, { stream: true }))) {
           if (event.type === 'assistant.delta' && typeof event.data.fullText === 'string') {
             accumulated = event.data.fullText;
+            if (typeof event.data.delta === 'string') voice?.enqueue(chunker.push(event.data.delta));
           } else if (event.type === 'assistant.completed' && typeof event.data.finalAnswer === 'string') {
             accumulated = event.data.finalAnswer;
-            spokenAnswer = event.data.finalAnswer;
+            // Solo informativo: el modelo al que OmniRoute envió la petición, visible en DevTools.
+            const route = event.data.route as { provider?: string; model?: string } | null | undefined;
+            if (route?.model) console.info(`[Jarvis] Modelo: ${route.provider}/${route.model}`);
           } else if (event.type === 'error') {
             flagServerAlert();
             errors.push(describeServerError(event.data));
@@ -233,12 +226,18 @@ export function App() {
       flagServerAlert();
       setConversationStatus('ERROR');
       upsertAssistant('Se cortó la conexión con mi servidor a mitad de la respuesta.', { isError: true });
-    } finally {
-      setConversationStatus('IDLE');
     }
 
-    if (ttsAvailable && spokenAnswer.trim()) {
-      await speak(spokenAnswer);
+    voice?.enqueue(chunker.flush());
+    if (!voice?.busy) {
+      if (speechRunRef.current === run) setConversationStatus('IDLE');
+      return;
+    }
+    setConversationStatus('SPEAKING');
+    await voice.drain();
+    if (speechRunRef.current === run) {
+      setIsJarvisSpeaking(false);
+      setConversationStatus('IDLE');
     }
   };
 

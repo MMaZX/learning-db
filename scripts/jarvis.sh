@@ -2,7 +2,7 @@
 #
 # jarvis.sh — levanta, detiene y revisa todos los servicios de la UI de Jarvis.
 #
-#   Voicebox  :17493  voz local en GPU (~/development/voicebox)
+#   Voz       :17494  Kokoro + RVC (voz de Eugeo) en GPU (~/development/eugeo-rvc-infer)
 #   MCP Go    :8080   db-intelligence en modo HTTP (MySQL read-only)
 #   OmniRoute :20128  router LLM OpenAI-compatible
 #   BFF Node  :4173   web/server (habla con MCP, OmniRoute y Voicebox)
@@ -17,7 +17,7 @@
 #   scripts/jarvis.sh logs <servicio>      Sigue el log (tail -f) de un servicio.
 #   scripts/jarvis.sh -h|--help
 #
-# Servicios: voicebox mcp omniroute bff vite
+# Servicios: voice mcp omniroute bff vite
 #
 # Configuración:
 #   - El token del MCP sale de JARVIS_MCP_AUTH_TOKEN en web/.env y se pasa al proceso Go como
@@ -32,13 +32,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WEB="$ROOT/web"
 RUN_DIR="$ROOT/.run"
 LOG_DIR="$RUN_DIR/logs"
-VOICEBOX_DIR="${VOICEBOX_DIR:-$HOME/development/voicebox}"
+VOICE_DIR="${VOICE_DIR:-$HOME/development/eugeo-rvc-infer}"
 MCP_BIN="$RUN_DIR/db-intelligence-mcp"
 
-ALL_SERVICES=(voicebox mcp omniroute bff vite)
-declare -A PORT=([voicebox]=17493 [mcp]=8080 [omniroute]=20128 [bff]=4173 [vite]=5173)
-# Voicebox carga el modelo en GPU al arrancar; el resto tarda segundos.
-declare -A WAIT_SECS=([voicebox]=90 [mcp]=30 [omniroute]=60 [bff]=20 [vite]=20)
+ALL_SERVICES=(voice mcp omniroute bff vite)
+declare -A PORT=([voice]=17494 [mcp]=8080 [omniroute]=20128 [bff]=4173 [vite]=5173)
+# La voz descarga modelos de Kokoro/RVC la primera vez; el resto tarda segundos.
+declare -A WAIT_SECS=([voice]=90 [mcp]=30 [omniroute]=60 [bff]=20 [vite]=20)
 
 if [[ -t 1 ]]; then
     C_OK=$'\e[32m' C_ERR=$'\e[31m' C_WARN=$'\e[33m' C_DIM=$'\e[2m' C_OFF=$'\e[0m'
@@ -99,12 +99,12 @@ wait_port() {
     return 1
 }
 
-start_voicebox() {
-    if [[ ! -x "$VOICEBOX_DIR/backend/venv/bin/uvicorn" ]]; then
-        warn "voicebox: no encuentro $VOICEBOX_DIR/backend/venv (define VOICEBOX_DIR). Jarvis funcionará sin voz."
+start_voice() {
+    if [[ ! -x "$VOICE_DIR/.venv/bin/uvicorn" ]]; then
+        warn "voice: no encuentro $VOICE_DIR/.venv (define VOICE_DIR). Jarvis funcionará sin voz."
         return 2
     fi
-    launch voicebox "$VOICEBOX_DIR" backend/venv/bin/uvicorn backend.main:app --host 127.0.0.1 --port "${PORT[voicebox]}"
+    launch voice "$VOICE_DIR" .venv/bin/uvicorn service:app --host 127.0.0.1 --port "${PORT[voice]}"
 }
 
 start_mcp() {

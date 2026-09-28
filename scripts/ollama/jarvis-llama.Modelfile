@@ -1,0 +1,12 @@
+# Variante de Llama 3.2 3B para Jarvis. Crear con:
+#   ollama create jarvis-llama -f scripts/ollama/jarvis-llama.Modelfile
+#
+# num_ctx: la API OpenAI-compatible (la que usa OmniRoute) no permite fijar el contexto por
+# petición. Jarvis necesita ~4.1K tokens de system prompt + 20 tools, más el resultado de
+# cada tool (obtener_esquema_bd devuelve ~11K). Con KV cache q8_0 (override de systemd),
+# 16K de contexto caben enteros en los 4 GB de la RTX 3050.
+FROM llama3.2:3b
+PARAMETER num_ctx 16384
+# El reparto automático de Ollama reserva de más y deja ~13 % del modelo en CPU con 16K,
+# lo que hunde la generación. Todo el modelo cabe en la GPU (medido: ~3.2 GB de 4 GB).
+PARAMETER num_gpu 99

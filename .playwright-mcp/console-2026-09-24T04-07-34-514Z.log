@@ -1,0 +1,4 @@
+[     622ms] [INFO] %cDownload the React DevTools for a better development experience: https://react.dev/link/react-devtools font-weight:bold @ https://localhost:5173/node_modules/.vite/deps/react-dom_client.js?v=2eeb5c9d:22164
+[     829ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ https://localhost:5173/node_modules/.vite/deps/chunk-HDEMVUAG.js?v=2eeb5c9d:301
+[    1019ms] [WARNING] THREE.Clock: This module has been deprecated. Please use THREE.Timer instead. @ https://localhost:5173/node_modules/.vite/deps/chunk-HDEMVUAG.js?v=2eeb5c9d:301
+[   46877ms] [INFO] [Jarvis] Modelo: ollama/jarvis-granite @ https://localhost:5173/src/App.tsx?t=1790222770943:188
