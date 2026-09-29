@@ -93,4 +93,7 @@ type Knowledge struct {
 	DecidedBy                string     `json:"decided_by,omitempty"`
 	DecidedAt                *time.Time `json:"decided_at,omitempty"`
 	DecisionNote             string     `json:"decision_note,omitempty"`
+	// TopicKey es la identidad estable subject@context (ver TopicKey). Se
+	// calcula en el store y no se expone por MCP.
+	TopicKey string `json:"-"`
 }

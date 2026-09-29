@@ -43,6 +43,9 @@ func Open(ctx context.Context, dataPath string) (*Store, error) {
 	if err := s.migrate(ctx); err != nil {
 		return nil, err
 	}
+	if err := s.ensureTopicKeys(ctx); err != nil {
+		return nil, err
+	}
 	return s, nil
 }
 

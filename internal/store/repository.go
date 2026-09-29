@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 )
@@ -202,14 +203,15 @@ func (s *Store) GetObservations(ctx context.Context, ids []int64) ([]Observation
 
 const knowledgeColumns = `id, subject, IFNULL(context,''), claim, IFNULL(evidence_json,''), IFNULL(source_json,''),
 	       confidence, status, version, supersedes_id, IFNULL(source_observation_ids_json,''), created_at,
-	       IFNULL(taught_by,''), IFNULL(decided_by,''), decided_at, IFNULL(decision_note,'')`
+	       IFNULL(taught_by,''), IFNULL(decided_by,''), decided_at, IFNULL(decision_note,''), IFNULL(topic_key,'')`
 
 func (s *Store) ProposeKnowledge(ctx context.Context, k Knowledge) (int64, error) {
 	res, err := s.db.ExecContext(ctx, `
-		INSERT INTO knowledge (subject, context, claim, evidence_json, source_json, confidence, status, version, supersedes_id, source_observation_ids_json, taught_by)
-		VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?)`,
+		INSERT INTO knowledge (subject, context, claim, evidence_json, source_json, confidence, status, version, supersedes_id, source_observation_ids_json, taught_by, topic_key)
+		VALUES (?, ?, ?, ?, ?, ?, 'proposed', ?, ?, ?, ?, ?)`,
 		k.Subject, nullIfEmpty(k.Context), k.Claim, nullIfEmpty(k.EvidenceJSON), nullIfEmpty(k.SourceJSON),
-		k.Confidence, k.Version, k.SupersedesID, nullIfEmpty(k.SourceObservationIDsJSON), nullIfEmpty(k.TaughtBy))
+		k.Confidence, k.Version, k.SupersedesID, nullIfEmpty(k.SourceObservationIDsJSON), nullIfEmpty(k.TaughtBy),
+		TopicKey(k.Subject, k.Context))
 	if err != nil {
 		return 0, fmt.Errorf("guardando propuesta de conocimiento: %w", err)
 	}
@@ -227,11 +229,24 @@ func (s *Store) GetKnowledge(ctx context.Context, id int64) (*Knowledge, error) 
 // respuesta correcta es preguntarle al usuario (ver tool aprender_del_usuario),
 // no adivinar.
 func (s *Store) FindValidatedKnowledge(ctx context.Context, subject, context_ string) ([]Knowledge, error) {
+	// Primero por topic_key (insensible a tildes/mayúsculas/espacios). Con
+	// contexto vacío coincide con cualquier contexto del concepto; con
+	// contexto, con ese contexto o con el concepto sin contexto. El OR final
+	// cubre filas legacy sin topic_key (duplicados validados previos al
+	// índice) con la semántica original por subject/context.
+	key := TopicKey(subject, context_)
+	noCtxKey := TopicKey(subject, "")
+	prefix := normalizeTopicPart(subject) + "@"
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+knowledgeColumns+`
 		FROM knowledge
-		WHERE status = 'validated' AND subject = ? AND (context = ? OR ? = '' OR context IS NULL)
-		ORDER BY version DESC`, subject, context_, context_)
+		WHERE status = 'validated' AND (
+			(topic_key IS NOT NULL AND (
+				(? = '' AND substr(topic_key, 1, length(?)) = ?)
+				OR (? <> '' AND topic_key IN (?, ?))))
+			OR (topic_key IS NULL AND subject = ? AND (context = ? OR ? = '' OR context IS NULL)))
+		ORDER BY version DESC, id DESC`,
+		context_, prefix, prefix, context_, key, noCtxKey, subject, context_, context_)
 	if err != nil {
 		return nil, err
 	}
@@ -296,17 +311,54 @@ func (s *Store) SearchKnowledge(ctx context.Context, q string, limit int) ([]Kno
 // ApproveKnowledge marca una propuesta como validada. Crea una nueva fila en
 // lugar de sobrescribir cuando existe evolución (ver propose_knowledge con
 // supersedes_id), preservando el historial completo de versiones.
+//
+// Solo puede haber un conocimiento validado por topic_key. Si otra fila
+// validada ya ocupa la clave se devuelve un error claro, salvo que sea
+// justamente la fila a la que esta propuesta reemplaza (supersedes_id): en
+// ese caso la anterior pasa a 'deprecated' (sin tocar su contenido ni el
+// encadenamiento supersedes_id) en la misma transacción.
 func (s *Store) ApproveKnowledge(ctx context.Context, id int64, approvedBy, note string) (*Knowledge, error) {
-	res, err := s.db.ExecContext(ctx, `
-		UPDATE knowledge
-		SET status = 'validated', decided_by = ?, decided_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), decision_note = ?
-		WHERE id = ? AND status = 'proposed'`, approvedBy, nullIfEmpty(note), id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("aprobando conocimiento: %w", err)
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback()
+
+	var subject string
+	var context_ sql.NullString
+	var supersedes sql.NullInt64
+	err = tx.QueryRowContext(ctx, `SELECT subject, context, supersedes_id FROM knowledge WHERE id = ? AND status = 'proposed'`, id).
+		Scan(&subject, &context_, &supersedes)
+	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("no existe una propuesta #%d en estado 'proposed'", id)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("aprobando conocimiento: %w", err)
+	}
+	key := TopicKey(subject, context_.String)
+
+	var holderID int64
+	err = tx.QueryRowContext(ctx, `SELECT id FROM knowledge WHERE topic_key = ? AND status = 'validated' AND id <> ?`, key, id).Scan(&holderID)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+	case err != nil:
+		return nil, fmt.Errorf("aprobando conocimiento: %w", err)
+	case supersedes.Valid && supersedes.Int64 == holderID:
+		if _, err := tx.ExecContext(ctx, `UPDATE knowledge SET status = 'deprecated' WHERE id = ?`, holderID); err != nil {
+			return nil, fmt.Errorf("deprecando versión anterior #%d: %w", holderID, err)
+		}
+	default:
+		return nil, fmt.Errorf("ya existe conocimiento validado #%d para %q; propón una nueva versión con reemplaza_a_id=%d en vez de aprobar un duplicado", holderID, key, holderID)
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE knowledge
+		SET status = 'validated', topic_key = ?, decided_by = ?, decided_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), decision_note = ?
+		WHERE id = ? AND status = 'proposed'`, key, approvedBy, nullIfEmpty(note), id); err != nil {
+		return nil, fmt.Errorf("aprobando conocimiento: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, fmt.Errorf("aprobando conocimiento: %w", err)
 	}
 	return s.GetKnowledge(ctx, id)
 }
@@ -429,7 +481,7 @@ func scanKnowledgeRows(sc rowScanner) (*Knowledge, error) {
 	var supersedes sql.NullInt64
 
 	if err := sc.Scan(&k.ID, &k.Subject, &k.Context, &k.Claim, &k.EvidenceJSON, &k.SourceJSON, &confidence, &k.Status, &k.Version,
-		&supersedes, &k.SourceObservationIDsJSON, &createdAt, &k.TaughtBy, &k.DecidedBy, &decidedAt, &k.DecisionNote); err != nil {
+		&supersedes, &k.SourceObservationIDsJSON, &createdAt, &k.TaughtBy, &k.DecidedBy, &decidedAt, &k.DecisionNote, &k.TopicKey); err != nil {
 		return nil, err
 	}
 	k.CreatedAt = parseTime(createdAt)

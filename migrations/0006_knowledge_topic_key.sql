@@ -1,0 +1,11 @@
+-- Identidad estable de un concepto: topic_key = normalizado(subject) + "@" +
+-- normalizado(context), p.ej. "vendedor@ventas". Se calcula en Go (ver
+-- store.TopicKey) porque quitar tildes de forma fiable no es viable en SQL
+-- puro.
+--
+-- Esta migración SOLO añade la columna. El backfill de filas existentes y el
+-- índice único parcial (topic_key WHERE status='validated') los crea Go al
+-- abrir el store (Store.ensureTopicKeys), en ese orden: si la base viva ya
+-- tuviera duplicados validados, un CREATE UNIQUE INDEX aquí fallaría y
+-- tumbaría el arranque.
+ALTER TABLE knowledge ADD COLUMN topic_key TEXT;

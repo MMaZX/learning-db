@@ -31,7 +31,7 @@ type recallCandidate struct {
 // con los nombres sin prefijo.
 const knowledgeColumnsQualified = `knowledge.id, knowledge.subject, IFNULL(knowledge.context,''), knowledge.claim, IFNULL(knowledge.evidence_json,''), IFNULL(knowledge.source_json,''),
 	       knowledge.confidence, knowledge.status, knowledge.version, knowledge.supersedes_id, IFNULL(knowledge.source_observation_ids_json,''), knowledge.created_at,
-	       IFNULL(knowledge.taught_by,''), IFNULL(knowledge.decided_by,''), knowledge.decided_at, IFNULL(knowledge.decision_note,'')`
+	       IFNULL(knowledge.taught_by,''), IFNULL(knowledge.decided_by,''), knowledge.decided_at, IFNULL(knowledge.decision_note,''), IFNULL(knowledge.topic_key,'')`
 
 // RecallValidatedKnowledge recupera el conocimiento validado relevante para
 // una petición escrita en lenguaje natural. A diferencia de SearchKnowledge,
@@ -183,6 +183,10 @@ func sortRecallCandidates(candidates []recallCandidate) {
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
+		// Desempate: una fila con topic_key canónico gana a una legacy sin clave.
+		if ki, kj := candidates[i].knowledge.TopicKey != "", candidates[j].knowledge.TopicKey != ""; ki != kj {
+			return ki
+		}
 		if candidates[i].knowledge.Version != candidates[j].knowledge.Version {
 			return candidates[i].knowledge.Version > candidates[j].knowledge.Version
 		}
@@ -211,7 +215,7 @@ func scanKnowledgeWithRank(rows *sql.Rows) (*Knowledge, float64, error) {
 	var rank float64
 
 	if err := rows.Scan(&k.ID, &k.Subject, &k.Context, &k.Claim, &k.EvidenceJSON, &k.SourceJSON, &confidence, &k.Status, &k.Version,
-		&supersedes, &k.SourceObservationIDsJSON, &createdAt, &k.TaughtBy, &k.DecidedBy, &decidedAt, &k.DecisionNote, &rank); err != nil {
+		&supersedes, &k.SourceObservationIDsJSON, &createdAt, &k.TaughtBy, &k.DecidedBy, &decidedAt, &k.DecisionNote, &k.TopicKey, &rank); err != nil {
 		return nil, 0, err
 	}
 	k.CreatedAt = parseTime(createdAt)
