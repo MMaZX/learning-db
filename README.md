@@ -231,6 +231,23 @@ base de datos?"* — debería usar la tool `obtener_esquema_bd`.
 
 ---
 
+### 4.6 Prompt `jarvis` (persona + flujo, versionado con el servidor)
+
+Además de las tools, el servidor publica un prompt MCP llamado `jarvis` con un
+argumento `peticion` (tu pregunta). Trae la personalidad y el flujo de trabajo
+(recordar contexto primero, validar códigos antes del SQL, aprender del
+usuario) y va con el binario: no hay que copiar archivos ni auto-actualizar.
+
+- **Claude Code:** invócalo como `/mcp__<nombre-del-servidor>__jarvis <tu pregunta>`.
+  `<nombre-del-servidor>` es el nombre que tú le diste al registrarlo en el
+  cliente (`claude mcp add <nombre> ...` o `~/.claude.json`), no lo define el
+  servidor; por ejemplo, si lo registraste como `ia-jarvis-gr`, será
+  `/mcp__ia-jarvis-gr__jarvis`.
+- **Otros clientes MCP:** exponen los prompts en su propia interfaz (menú de
+  prompts o comandos slash, según el cliente).
+- El texto vive en `internal/mcpserver/prompts/jarvis.md` (derivado de
+  `.claude/commands/jarvis.md`; ambos deben mantenerse sincronizados).
+
 ## 5. Modo stdio (alternativa sin multi-sesión)
 
 Si preferís que cada cliente levante su **propio proceso** (sin compartir

@@ -44,6 +44,7 @@ func New(deps *Deps) *server.MCPServer {
 		"db-intelligence",
 		version,
 		server.WithToolCapabilities(true),
+		server.WithPromptCapabilities(false),
 		server.WithLogging(),
 		server.WithInstructions(serverInstructions),
 		server.WithToolHandlerMiddleware(toolUsageMiddleware(deps)),
@@ -54,6 +55,7 @@ func New(deps *Deps) *server.MCPServer {
 	registerKnowledgeTools(s, deps)
 	registerLearningTools(s, deps)
 	registerTelemetryTools(s, deps)
+	registerPrompts(s)
 
 	seedToolUsage(s, deps)
 
