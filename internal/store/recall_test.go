@@ -13,10 +13,8 @@ func seedValidatedKnowledge(t *testing.T, s *Store, ctx context.Context, k Knowl
 	k.Version = 1
 	if k.SourceJSON == "" {
 		// Datos reales siempre traen source_json (aprender_del_usuario lo
-		// rellena con tablas/columnas/relación). Se fija aquí para no
-		// disparar el caso borde de recallContains("", term) == true (toda
-		// cadena "contiene" la cadena vacía), preexistente en el scoring en
-		// Go y fuera de alcance de T1 ("fallback ... unchanged").
+		// rellena con tablas/columnas/relación); se fija aquí para que las
+		// semillas se parezcan a datos reales.
 		k.SourceJSON = `{"tables":["seed_table"]}`
 	}
 	id, err := s.ProposeKnowledge(ctx, k)
@@ -231,5 +229,21 @@ func TestRecallValidatedKnowledge_FallsBackToGoScoringOnFTSError(t *testing.T) {
 	}
 	if len(found) == 0 || found[0].Subject != "vendedor" {
 		t.Fatalf("esperaba que el fallback en Go encontrara 'vendedor', got %+v", found)
+	}
+}
+
+func TestRecallContains_EmptyMatchesNothing(t *testing.T) {
+	if recallContains("", "ventas") || recallContains("ventas", "") || recallContains("", "") {
+		t.Error("un campo o término vacío no debe coincidir")
+	}
+	if !recallContains("gestion de ventas", "ventas") || !recallContains("ven", "ventas") {
+		t.Error("la coincidencia mutua no vacía debe seguir funcionando")
+	}
+}
+
+func TestScoreRecallCandidate_EmptySourceJSONGivesNoScore(t *testing.T) {
+	k := Knowledge{Subject: "zzz", Claim: "yyy", SourceJSON: ""}
+	if got := scoreRecallCandidate(k, "vendedor ventas", "", []string{"vendedor", "ventas"}); got != 0 {
+		t.Errorf("score = %d, quería 0 (SourceJSON vacío no debe puntuar)", got)
 	}
 }

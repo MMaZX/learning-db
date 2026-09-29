@@ -273,7 +273,12 @@ func scoreRecallCandidate(k Knowledge, query, normalizedContext string, terms []
 	return score
 }
 
+// recallContains indica coincidencia mutua entre texto y término. Un texto
+// vacío no coincide con nada (strings.Contains(term, "") es siempre true).
 func recallContains(text, term string) bool {
+	if text == "" || term == "" {
+		return false
+	}
 	return strings.Contains(text, term) || strings.Contains(term, text)
 }
 
