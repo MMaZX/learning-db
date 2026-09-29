@@ -29,7 +29,12 @@ func Open(ctx context.Context, dataPath string) (*Store, error) {
 	}
 	dbPath := filepath.Join(dataPath, "mcp.db")
 
-	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)")
+	// _txlock=immediate: toda transacción inicia con BEGIN IMMEDIATE, así el
+	// lock de escritura se toma al comenzar y busy_timeout aplica de forma
+	// fiable entre procesos (un BEGIN diferido que luego escala a escritura
+	// falla al instante con SQLITE_BUSY sin esperar). Con MaxOpenConns(1)
+	// el costo de que las lecturas en BeginTx también sean immediate es nulo.
+	db, err := sql.Open("sqlite", dbPath+"?_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)")
 	if err != nil {
 		return nil, fmt.Errorf("abriendo sqlite: %w", err)
 	}
