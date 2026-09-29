@@ -145,3 +145,15 @@ func TestJarvisPromptTemplateUnder100Lines(t *testing.T) {
 		t.Fatalf("el template tiene %d líneas; el máximo es 99", n)
 	}
 }
+
+// Un {{version}} escrito por el usuario queda literal (la petición se
+// sustituye al final) y una petición solo con espacios usa el fallback.
+func TestRenderJarvisPrompt_PlaceholderOrderAndBlank(t *testing.T) {
+	out := renderJarvisPrompt("dime la {{version}} del sistema")
+	if !strings.Contains(out, "dime la {{version}} del sistema") {
+		t.Fatalf("la petición del usuario no debe reinterpretarse como marcador")
+	}
+	if !strings.Contains(renderJarvisPrompt("   \n\t"), peticionVacia) {
+		t.Fatalf("una petición en blanco debe usar el fallback")
+	}
+}
