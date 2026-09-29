@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -221,6 +222,46 @@ func (s *Store) ProposeKnowledge(ctx context.Context, k Knowledge) (int64, error
 func (s *Store) GetKnowledge(ctx context.Context, id int64) (*Knowledge, error) {
 	row := s.db.QueryRowContext(ctx, `SELECT `+knowledgeColumns+` FROM knowledge WHERE id = ?`, id)
 	return scanKnowledge(row)
+}
+
+// GetKnowledgeByIDs devuelve en una sola consulta las filas VALIDADAS entre
+// los ids pedidos. Los ids inexistentes o en cualquier otro estado
+// (proposed/rejected/deprecated) se omiten sin error: es el follow-up de
+// recordar_contexto(detalle=compacto) y nunca debe filtrar conocimiento no
+// confiable. No sustituye a GetKnowledge, que sigue sin filtrar por estado.
+func (s *Store) GetKnowledgeByIDs(ctx context.Context, ids []int64) ([]Knowledge, error) {
+	seen := make(map[int64]struct{}, len(ids))
+	args := make([]any, 0, len(ids))
+	for _, id := range ids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		args = append(args, id)
+	}
+	if len(args) == 0 {
+		return nil, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT `+knowledgeColumns+`
+		FROM knowledge
+		WHERE status = 'validated' AND id IN (`+placeholders+`)
+		ORDER BY id`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var out []Knowledge
+	for rows.Next() {
+		k, err := scanKnowledgeRows(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *k)
+	}
+	return out, rows.Err()
 }
 
 // FindValidatedKnowledge busca conocimiento YA VALIDADO para un concepto en

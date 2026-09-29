@@ -304,6 +304,11 @@ el binario nativo es más simple.
   propuestas + observaciones, no solo lo validado) y `obtener_conocimiento_validado`
   para una verificación puntual de un concepto exacto justo antes de escribir
   SQL; ninguna de las dos reemplaza a `recordar_contexto` para el recuerdo de sesión.
+- Modo compacto: `recordar_contexto(detalle="compacto")` devuelve por cada
+  recuerdo solo `id`, `concepto`, `contexto`, `afirmacion_preview` (~160
+  caracteres, con `truncado`), `tablas` y `version`; el detalle completo de los
+  que hagan falta se pide con `obtener_conocimiento_por_id` (solo validados).
+  Sin `detalle` (o `completo`) la respuesta es la de siempre.
 - Si `recordar_contexto` devuelve `memoria_encontrada=false`, el concepto no
   está validado: pregunta al usuario y registra la respuesta con
   `aprender_del_usuario`; no inventes tablas ni columnas.
@@ -332,7 +337,7 @@ el binario nativo es más simple.
 
 ---
 
-## 8. Las 20 tools disponibles
+## 8. Las 21 tools disponibles
 
 Prioridad para recordar contexto: 1) `recordar_contexto` (siempre primero, con
 la petición completa); `buscar_conocimiento` es auditoría amplia y
@@ -341,7 +346,7 @@ la petición completa); `buscar_conocimiento` es auditoría amplia y
 `obtener_esquema_bd`, `obtener_esquema_tabla`, `buscar_en_base_datos`,
 `refrescar_esquema`, `consultar_base_datos`, `explicar_consulta`,
 `recordar_contexto`, `obtener_conocimiento_negocio`, `buscar_conocimiento`,
-`obtener_conocimiento_validado`, `obtener_entidad`, `obtener_relaciones`,
+`obtener_conocimiento_validado`, `obtener_conocimiento_por_id`, `obtener_entidad`, `obtener_relaciones`,
 `registrar_observacion`, `proponer_conocimiento`, `aprender_del_usuario`,
 `obtener_conocimiento_pendiente`, `aprobar_conocimiento`,
 `rechazar_conocimiento`, `actualizar_alias`, `obtener_estadisticas_uso`

@@ -274,3 +274,40 @@ func TestRecallValidatedKnowledge_PrioritizesContext(t *testing.T) {
 		t.Fatalf("esperaba priorizar contexto ventas, got %+v", found)
 	}
 }
+
+func TestGetKnowledgeByIDs_OnlyValidatedSingleBatch(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	mk := func(subject string) int64 {
+		id, err := s.ProposeKnowledge(ctx, Knowledge{Subject: subject, Context: "ventas", Claim: subject, Version: 1})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	}
+	valid1, valid2, proposed, rejected := mk("a"), mk("b"), mk("c"), mk("d")
+	for _, id := range []int64{valid1, valid2} {
+		if _, err := s.ApproveKnowledge(ctx, id, "admin", ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RejectKnowledge(ctx, rejected, "admin", "no"); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.GetKnowledgeByIDs(ctx, []int64{valid2, valid1, valid1, proposed, rejected, 9999})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != valid1 || got[1].ID != valid2 {
+		t.Fatalf("debían volver solo los validados sin duplicar, ordenados por id: %+v", got)
+	}
+	if none, err := s.GetKnowledgeByIDs(ctx, nil); err != nil || len(none) != 0 {
+		t.Fatalf("entrada vacía: %v %v", none, err)
+	}
+	// GetKnowledge conserva su comportamiento: no filtra por estado.
+	if k, err := s.GetKnowledge(ctx, proposed); err != nil || k == nil {
+		t.Fatalf("GetKnowledge no debe filtrar por estado: %v", err)
+	}
+}

@@ -162,7 +162,7 @@ func TestRecordarContextoDescribedAsSingleRecallEntrypoint(t *testing.T) {
 	}
 
 	// T2 no quita ni renombra tools existentes: solo aclara prioridad.
-	const expectedToolCount = 20
+	const expectedToolCount = 21
 	if len(tools.Tools) != expectedToolCount {
 		t.Fatalf("se esperaban %d tools registradas, hay %d: %v", expectedToolCount, len(tools.Tools), toolNames(tools.Tools))
 	}

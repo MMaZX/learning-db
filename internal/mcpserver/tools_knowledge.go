@@ -8,19 +8,27 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 )
 
+// maxIDsPorConsulta acota obtener_conocimiento_por_id.
+const maxIDsPorConsulta = 20
+
 func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 	s.AddTool(
 		mcp.NewTool("recordar_contexto",
-			mcp.WithDescription("ÚNICA y PRIMERA tool que debes llamar para recuperar memoria de negocio al comenzar una sesión o tarea nueva, antes de explorar el schema o escribir SQL. Pásale la petición completa del usuario tal cual (parámetro 'tarea'), no un resumen ni una sola palabra clave: la búsqueda tolera variaciones de redacción. Resuelve el recuerdo en una sola llamada, incluida la fuente (tablas/columnas/relación/fórmula) y el alias legible de cada dato, así que no necesitas una segunda llamada a buscar_conocimiento ni a obtener_conocimiento_validado para recordar contexto: esas dos tools sirven para otra cosa (auditoría amplia y verificación puntual antes de un SQL concreto), no para el recuerdo de sesión. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido."),
+			mcp.WithDescription("ÚNICA y PRIMERA tool que debes llamar para recuperar memoria de negocio al comenzar una sesión o tarea nueva, antes de explorar el schema o escribir SQL. Pásale la petición completa del usuario tal cual (parámetro 'tarea'), no un resumen ni una sola palabra clave: la búsqueda tolera variaciones de redacción. Resuelve el recuerdo en una sola llamada, incluida la fuente (tablas/columnas/relación/fórmula) y el alias legible de cada dato, así que no necesitas una segunda llamada a buscar_conocimiento ni a obtener_conocimiento_validado para recordar contexto: esas dos tools sirven para otra cosa (auditoría amplia y verificación puntual antes de un SQL concreto), no para el recuerdo de sesión. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido. Parámetro opcional 'detalle': 'completo' (por defecto) devuelve cada recuerdo entero; 'compacto' devuelve solo id, concepto, contexto, una vista previa de la afirmación, las tablas y la versión (mucho más barato cuando hay muchos recuerdos) y luego pides el detalle de los que necesites con obtener_conocimiento_por_id."),
 			mcp.WithString("tarea", mcp.Required(), mcp.Description("Petición completa del usuario, en lenguaje natural")),
 			mcp.WithString("contexto", mcp.Description("Área de negocio si se conoce, ej. 'ventas' o 'movimientos de stock'")),
 			mcp.WithNumber("limite", mcp.Description("Máximo de recuerdos validados a devolver"), mcp.DefaultNumber(20)),
+			mcp.WithString("detalle", mcp.Description("Nivel de detalle: 'completo' (por defecto) o 'compacto' (vista previa; pide el detalle con obtener_conocimiento_por_id)"), mcp.Enum("completo", "compacto")),
 		),
 		mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, args struct {
 			Tarea    string `json:"tarea"`
 			Contexto string `json:"contexto"`
 			Limite   int    `json:"limite"`
+			Detalle  string `json:"detalle"`
 		}) (*mcp.CallToolResult, error) {
+			if args.Detalle != "" && args.Detalle != "completo" && args.Detalle != "compacto" {
+				return mcp.NewToolResultError("detalle debe ser 'completo' o 'compacto'"), nil
+			}
 			if args.Limite <= 0 || args.Limite > 50 {
 				args.Limite = 20
 			}
@@ -38,10 +46,57 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 					"nota":               "No encontré memoria validada relevante. No asumas ni inventes tablas/columnas: pregúntale al usuario cómo se obtiene el dato y regístralo con aprender_del_usuario. Explora solo el schema necesario antes de asumir reglas de negocio.",
 				})
 			}
+			if args.Detalle == "compacto" {
+				return toJSONResult(map[string]any{
+					"memoria_encontrada":    true,
+					"conocimiento_validado": conocimientosCompactosAJSON(found, aliases),
+					"siguiente_paso":        "Esto es una vista compacta. Llama a obtener_conocimiento_por_id con los ids que necesites para ver la fuente completa (columnas, relación, fórmula) y los alias antes de escribir SQL; no hace falta pedir los que no te sirvan.",
+					"instruccion":           "Aplica esta memoria directamente. No redescubras estas relaciones ni vuelvas a preguntarlas; explora únicamente lo que falte para completar la tarea.",
+				})
+			}
 			return toJSONResult(map[string]any{
 				"memoria_encontrada":    true,
 				"conocimiento_validado": conocimientosAJSON(found, aliases),
 				"instruccion":           "Aplica esta memoria directamente. No redescubras estas relaciones ni vuelvas a preguntarlas; explora únicamente lo que falte para completar la tarea.",
+			})
+		}),
+	)
+
+	s.AddTool(
+		mcp.NewTool("obtener_conocimiento_por_id",
+			mcp.WithDescription("Follow-up de recordar_contexto(detalle='compacto'): devuelve el detalle COMPLETO (afirmación entera, fuente, fuente_alias, evidencia, versión) de los conocimientos cuyos ids elijas de la vista compacta. Solo devuelve conocimiento VALIDADO; los ids inexistentes o no validados se omiten y se listan en 'no_encontrados'. No es una vía de recuerdo alternativa: recordar_contexto sigue siendo el único punto de entrada para recuperar memoria."),
+			mcp.WithArray("ids", mcp.Required(), mcp.Description("Ids de conocimiento a expandir (máximo 20)"), mcp.WithNumberItems()),
+		),
+		mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, args struct {
+			IDs []int64 `json:"ids"`
+		}) (*mcp.CallToolResult, error) {
+			if len(args.IDs) == 0 {
+				return mcp.NewToolResultError("ids no puede estar vacío"), nil
+			}
+			if len(args.IDs) > maxIDsPorConsulta {
+				return mcp.NewToolResultError(fmt.Sprintf("máximo %d ids por llamada", maxIDsPorConsulta)), nil
+			}
+			found, err := deps.Store.GetKnowledgeByIDs(ctx, args.IDs)
+			if err != nil {
+				return toolError(err)
+			}
+			aliases, err := aliasMap(ctx, deps)
+			if err != nil {
+				return toolError(err)
+			}
+			got := make(map[int64]struct{}, len(found))
+			for _, k := range found {
+				got[k.ID] = struct{}{}
+			}
+			missing := []int64{}
+			for _, id := range args.IDs {
+				if _, ok := got[id]; !ok {
+					missing = append(missing, id)
+				}
+			}
+			return toJSONResult(map[string]any{
+				"conocimiento_validado": conocimientosAJSON(found, aliases),
+				"no_encontrados":        missing,
 			})
 		}),
 	)
