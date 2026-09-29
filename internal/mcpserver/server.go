@@ -17,7 +17,7 @@ import (
 	"github.com/fulanito/db-intelligence-mcp/internal/store"
 )
 
-const version = "0.2.0"
+const version = "0.3.0"
 
 const serverInstructions = `Este servidor tiene memoria persistente de negocio entre sesiones.
 Al recibir una petición sobre datos o procesos de negocio, llama primero a recordar_contexto con la petición completa del usuario, antes de explorar el schema o escribir SQL.
