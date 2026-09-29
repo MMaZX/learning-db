@@ -9,3 +9,7 @@ data/
 /dist/
 /.run/
 opencode.json
+# Local Pi runtime state
+.atl/
+# Local ODD task tracking
+odd/
