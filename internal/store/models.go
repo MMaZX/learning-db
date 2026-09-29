@@ -97,3 +97,38 @@ type Knowledge struct {
 	// calcula en el store y no se expone por MCP.
 	TopicKey string `json:"-"`
 }
+
+// Tipos de relación entre una propuesta de conocimiento y filas existentes
+// (ver Store.DetectKnowledgeRelations).
+const (
+	RelationSameTopic           = "same_topic"
+	RelationPossibleConflict    = "possible_conflict"
+	RelationSupersedesCandidate = "supersedes_candidate"
+	RelationPreviouslyRejected  = "previously_rejected"
+)
+
+// KnowledgeRelation es una relación persistida from_id -> to_id. Score solo
+// se rellena en las relaciones derivadas de FTS (similitud bm25 invertida).
+type KnowledgeRelation struct {
+	ID        int64     `json:"id"`
+	FromID    int64     `json:"from_id"`
+	ToID      int64     `json:"to_id"`
+	Relation  string    `json:"relation"`
+	Score     *float64  `json:"score,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// RelatedKnowledge es una relación junto con el estado ACTUAL de la fila
+// relacionada (to_id), calculado al leer: no se guarda en la relación.
+type RelatedKnowledge struct {
+	Relation     string     `json:"relation"`
+	Score        *float64   `json:"score,omitempty"`
+	ID           int64      `json:"id"`
+	Status       string     `json:"status"`
+	Subject      string     `json:"subject"`
+	Context      string     `json:"context,omitempty"`
+	Claim        string     `json:"claim"`
+	DecidedBy    string     `json:"decided_by,omitempty"`
+	DecidedAt    *time.Time `json:"decided_at,omitempty"`
+	DecisionNote string     `json:"decision_note,omitempty"`
+}
