@@ -35,7 +35,7 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 			if len(found) == 0 {
 				return toJSONResult(map[string]any{
 					"memoria_encontrada": false,
-					"nota":               "No encontré memoria validada relevante. Explora solo el schema necesario y consulta conocimiento específico antes de asumir reglas de negocio.",
+					"nota":               "No encontré memoria validada relevante. No asumas ni inventes tablas/columnas: pregúntale al usuario cómo se obtiene el dato y regístralo con aprender_del_usuario. Explora solo el schema necesario antes de asumir reglas de negocio.",
 				})
 			}
 			return toJSONResult(map[string]any{

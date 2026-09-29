@@ -89,7 +89,10 @@ func buildFTSQuery(task, contextHint string) string {
 	seen := map[string]bool{}
 	tokens := make([]string, 0)
 	for _, field := range strings.Fields(normalized) {
-		if seen[field] {
+		// Mismo filtro que recallTerms: sin stopwords/tokens cortos, un "de"
+		// haría que cualquier tarea acierte conceptos como "movimientos de
+		// stock" (falso positivo con memoria_encontrada=true).
+		if seen[field] || len([]rune(field)) < 3 || recallStopWords[field] {
 			continue
 		}
 		seen[field] = true
