@@ -59,7 +59,7 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 
 	s.AddTool(
 		mcp.NewTool("proponer_conocimiento",
-			mcp.WithDescription("Convierte observaciones/evidencia en una propuesta formal de conocimiento. El estado inicial siempre es 'propuesto', NUNCA 'validado' automáticamente: requiere aprobación humana vía aprobar_conocimiento. Si 'reemplaza_a_id' se indica, esta propuesta es una nueva versión de un conocimiento existente (se conserva el historial completo, nunca se sobrescribe). Para conocimiento de un concepto+contexto enseñado directamente por el usuario en la conversación, prefiere la tool aprender_del_usuario: verifica automáticamente contra el schema real."),
+			mcp.WithDescription("Convierte observaciones/evidencia en una propuesta formal de conocimiento. El estado inicial siempre es 'propuesto', NUNCA 'validado' automáticamente: requiere aprobación humana vía aprobar_conocimiento. Si 'reemplaza_a_id' se indica, esta propuesta es una nueva versión de un conocimiento existente (se conserva el historial completo, nunca se sobrescribe). Para conocimiento de un concepto+contexto enseñado directamente por el usuario en la conversación, prefiere la tool aprender_del_usuario: verifica automáticamente contra el schema real. La respuesta incluye 'posibles_conflictos' (ideas parecidas ya existentes); si una tiene relacion='previously_rejected', una idea similar ya fue rechazada: lee motivo_rechazo antes de insistir."),
 			mcp.WithString("concepto", mcp.Required(), mcp.Description("Tema, ej. 'cortesia'")),
 			mcp.WithString("contexto", mcp.Description("Ámbito de aplicación, ej. 'ventas' (evita que se extrapole a otros contextos)")),
 			mcp.WithString("afirmacion", mcp.Required(), mcp.Description("Afirmación propuesta, ej. 'pedido.estado = 10 representa una cortesía'")),
@@ -97,13 +97,13 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 				return toolError(err)
 			}
 			recordAudit(ctx, deps, "proponer_conocimiento", "propuesta_creada", mustJSON(map[string]any{"id": id, "concepto": args.Concepto}), "")
-			return toJSONResult(map[string]any{"id": id, "estado": "propuesto", "version": version})
+			return toJSONResult(map[string]any{"id": id, "estado": "propuesto", "version": version, "posibles_conflictos": posiblesConflictos(ctx, deps, id)})
 		}),
 	)
 
 	s.AddTool(
 		mcp.NewTool("obtener_conocimiento_pendiente",
-			mcp.WithDescription("Lista las propuestas de conocimiento pendientes de validación humana (estado='propuesto')."),
+			mcp.WithDescription("Lista las propuestas de conocimiento pendientes de validación humana (estado='propuesto'). Cada propuesta trae 'posibles_conflictos' (conocimiento parecido ya existente o rechazado)."),
 			mcp.WithNumber("limite", mcp.Description("Máximo de propuestas a devolver"), mcp.DefaultNumber(50)),
 		),
 		mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, args struct {
@@ -120,13 +120,23 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			if err != nil {
 				return toolError(err)
 			}
-			return toJSONResult(conocimientosAJSON(pending, aliases))
+			items := conocimientosAJSON(pending, aliases)
+			ids := make([]int64, len(pending))
+			for i, k := range pending {
+				ids[i] = k.ID
+			}
+			// Una sola consulta para todas las pendientes (sin N+1).
+			rels := relacionesDe(ctx, deps, ids)
+			for i, k := range pending {
+				items[i]["posibles_conflictos"] = relacionesAJSON(rels[k.ID])
+			}
+			return toJSONResult(items)
 		}),
 	)
 
 	s.AddTool(
 		mcp.NewTool("aprobar_conocimiento",
-			mcp.WithDescription("Aprueba una propuesta de conocimiento (estado 'propuesto' -> 'validado'). Requiere identificar quién aprueba. A partir de este momento el conocimiento puede reutilizarse como fuente confiable por cualquier asistente MCP conectado."),
+			mcp.WithDescription("Aprueba una propuesta de conocimiento (estado 'propuesto' -> 'validado'). Requiere identificar quién aprueba. A partir de este momento el conocimiento puede reutilizarse como fuente confiable por cualquier asistente MCP conectado. Antes de aprobar, revisa 'posibles_conflictos' (en obtener_conocimiento_pendiente): si hay una versión validada parecida o una idea previamente rechazada, decide con ese contexto. La respuesta también trae 'posibles_conflictos'."),
 			mcp.WithNumber("id", mcp.Required(), mcp.Description("ID de la propuesta a aprobar")),
 			mcp.WithString("aprobado_por", mcp.Required(), mcp.Description("Quién aprueba (usuario/administrador)")),
 			mcp.WithString("nota", mcp.Description("Nota opcional de la decisión")),
@@ -145,13 +155,15 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			if err != nil {
 				return toolError(err)
 			}
-			return toJSONResult(conocimientoAJSON(*k, aliases))
+			out := conocimientoAJSON(*k, aliases)
+			out["posibles_conflictos"] = relacionesAJSON(relacionesDe(ctx, deps, []int64{k.ID})[k.ID])
+			return toJSONResult(out)
 		}),
 	)
 
 	s.AddTool(
 		mcp.NewTool("rechazar_conocimiento",
-			mcp.WithDescription("Rechaza una propuesta de conocimiento (estado 'propuesto' -> 'rechazado'). El registro se conserva completo, nunca se elimina."),
+			mcp.WithDescription("Rechaza una propuesta de conocimiento (estado 'propuesto' -> 'rechazado'). El registro se conserva completo, nunca se elimina (queda como conocimiento negativo: futuras propuestas parecidas lo verán como 'previously_rejected'). Revisa 'posibles_conflictos' de la propuesta antes de rechazar y deja el motivo en 'nota'."),
 			mcp.WithNumber("id", mcp.Required(), mcp.Description("ID de la propuesta a rechazar")),
 			mcp.WithString("rechazado_por", mcp.Required(), mcp.Description("Quién rechaza")),
 			mcp.WithString("nota", mcp.Description("Motivo del rechazo")),
@@ -180,7 +192,7 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 				"Registra una enseñanza EXPLÍCITA de un humano sobre de dónde sale un concepto de negocio (ej. 'el vendedor se obtiene de pedidosventa.codUsuario -> usuario.codUsuario'). "+
 					"Regla obligatoria: cuando no exista conocimiento validado para un concepto (usa primero obtener_conocimiento_validado), el agente NUNCA debe adivinar una columna por similitud de nombre ni inventar una relación. "+
 					"Debe preguntarle al usuario cómo se obtiene el dato, y solo entonces llamar a esta tool con lo que el usuario respondió. "+
-					"Esta tool verifica automáticamente contra el schema real las tablas/columnas/relación mencionadas (rechaza la enseñanza si ninguna referencia existe, para no guardar estructuras inventadas) y crea una propuesta ('propuesto'), NUNCA conocimiento validado directamente: sigue requiriendo aprobar_conocimiento por un humano."),
+					"Esta tool verifica automáticamente contra el schema real las tablas/columnas/relación mencionadas (rechaza la enseñanza si ninguna referencia existe, para no guardar estructuras inventadas) y crea una propuesta ('propuesto'), NUNCA conocimiento validado directamente: sigue requiriendo aprobar_conocimiento por un humano. La respuesta incluye 'posibles_conflictos': si alguno tiene relacion='previously_rejected', una idea similar ya fue rechazada; lee motivo_rechazo antes de insistir."),
 			mcp.WithString("concepto", mcp.Required(), mcp.Description("Concepto de negocio que el usuario está enseñando, ej. 'vendedor', 'utilidad'")),
 			mcp.WithString("contexto", mcp.Required(), mcp.Description("Ámbito donde aplica esta enseñanza, ej. 'ventas', 'reportes de ventas'. El mismo concepto puede tener fuentes distintas en otros contextos: nunca se extrapola.")),
 			mcp.WithString("explicacion", mcp.Required(), mcp.Description("Lo que el usuario explicó, en sus propias palabras")),
@@ -300,6 +312,8 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			recordAudit(ctx, deps, "aprender_del_usuario", "propuesta_creada_desde_ensenanza",
 				mustJSON(map[string]any{"id": id, "concepto": args.Concepto, "contexto": args.Contexto}), "")
 
+			conflictos := posiblesConflictos(ctx, deps, id)
+
 			creado, err := deps.Store.GetKnowledge(ctx, id)
 			if err != nil {
 				return toolError(err)
@@ -320,6 +334,7 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			return toJSONResult(map[string]any{
 				"creado":                true,
 				"propuesta":             conocimientoAJSON(*creado, aliases),
+				"posibles_conflictos":   conflictos,
 				"verificacion_columnas": verifColumnas,
 				"verificacion_relacion": relacionInfo,
 				"alias_aplicados":       aliasResultados,
@@ -356,6 +371,38 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			return toJSONResult(res)
 		}),
 	)
+}
+
+// detectarRelaciones es la detección de relaciones tras una propuesta. Es una
+// variable para poder simular fallos en tests.
+var detectarRelaciones = func(ctx context.Context, st *store.Store, id int64) ([]store.KnowledgeRelation, error) {
+	return st.DetectKnowledgeRelations(ctx, id)
+}
+
+// posiblesConflictos detecta y devuelve las relaciones de una propuesta recién
+// creada. Es un efecto secundario BEST-EFFORT: si falla se registra y se
+// devuelve una lista vacía, nunca hace fallar la propuesta.
+func posiblesConflictos(ctx context.Context, deps *Deps, id int64) []map[string]any {
+	if _, err := detectarRelaciones(ctx, deps.Store, id); err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Warn("no se pudo detectar relaciones de la propuesta", "id", id, "error", err)
+		}
+		return []map[string]any{}
+	}
+	return relacionesAJSON(relacionesDe(ctx, deps, []int64{id})[id])
+}
+
+// relacionesDe lee en lote las relaciones de los ids dados; best-effort igual
+// que la detección (ante error registra y devuelve un mapa vacío).
+func relacionesDe(ctx context.Context, deps *Deps, ids []int64) map[int64][]store.RelatedKnowledge {
+	rels, err := deps.Store.RelationsFor(ctx, ids)
+	if err != nil {
+		if deps.Logger != nil {
+			deps.Logger.Warn("no se pudo leer relaciones de conocimiento", "error", err)
+		}
+		return map[int64][]store.RelatedKnowledge{}
+	}
+	return rels
 }
 
 func tipoAIngles(tipo string) (string, bool) {

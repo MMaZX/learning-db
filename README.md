@@ -309,6 +309,13 @@ el binario nativo es más simple.
   caracteres, con `truncado`), `tablas` y `version`; el detalle completo de los
   que hagan falta se pide con `obtener_conocimiento_por_id` (solo validados).
   Sin `detalle` (o `completo`) la respuesta es la de siempre.
+- Conflictos al proponer: `proponer_conocimiento`, `aprender_del_usuario`,
+  `obtener_conocimiento_pendiente` y `aprobar_conocimiento` devuelven
+  `posibles_conflictos` (siempre un arreglo): conocimiento parecido ya validado o
+  propuesto (mismo concepto+contexto o texto muy similar). Si una entrada tiene
+  `relacion="previously_rejected"`, una idea similar ya fue rechazada: se
+  conserva como conocimiento negativo (con `motivo_rechazo`, `rechazado_por` y
+  `fecha`) y nunca aparece en `recordar_contexto`. Revísalos antes de aprobar.
 - Si `recordar_contexto` devuelve `memoria_encontrada=false`, el concepto no
   está validado: pregunta al usuario y registra la respuesta con
   `aprender_del_usuario`; no inventes tablas ni columnas.

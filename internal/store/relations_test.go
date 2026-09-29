@@ -2,8 +2,13 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
+	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/fulanito/db-intelligence-mcp/migrations"
 )
 
 func proposeK(t *testing.T, s *Store, k Knowledge) int64 {
@@ -316,5 +321,95 @@ func TestMigration0007_AppliesOnExistingDB(t *testing.T) {
 	var applied int
 	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '0007_knowledge_relations.sql'`).Scan(&applied); err != nil || applied != 1 {
 		t.Errorf("migración 0007 aplicada = %d err=%v", applied, err)
+	}
+}
+
+func TestRelationsFor_LargeIDBatchStaysUnderVariableLimit(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	related := proposeK(t, s, Knowledge{Subject: "cliente", Context: "crm", Claim: "tabla clientes"})
+	a := proposeK(t, s, Knowledge{Subject: "cliente", Context: "crm", Claim: "tabla customers"})
+	if _, err := s.DetectKnowledgeRelations(ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	// Más ids que el límite de variables de SQLite (32766): sin lotes fallaría.
+	// El id con relaciones queda al final para cruzar varios lotes.
+	ids := make([]int64, 0, 40001)
+	for i := int64(1000); i < 41000; i++ {
+		ids = append(ids, i)
+	}
+	ids = append(ids, a)
+
+	got, err := s.RelationsFor(ctx, ids)
+	if err != nil {
+		t.Fatalf("RelationsFor con %d ids: %v", len(ids), err)
+	}
+	if len(got[a]) != 1 || got[a][0].ID != related {
+		t.Fatalf("esperaba 1 relación hacia %d, got %+v", related, got[a])
+	}
+}
+
+func TestDetectRelations_NonexistentIDReturnsClearError(t *testing.T) {
+	s := newTestStore(t)
+	rels, err := s.DetectKnowledgeRelations(context.Background(), 99999)
+	if err == nil || !strings.Contains(err.Error(), "99999") {
+		t.Fatalf("esperaba error que nombre el id, got rels=%v err=%v", rels, err)
+	}
+}
+
+// Base creada solo con las migraciones 0001-0006 (estado de producción antes
+// de esta feature) y reabierta con todas: 0007 debe aplicarse sin tocar los
+// datos existentes.
+func TestMigration0007_UpgradesFromPre0007DB(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	raw, err := sql.Open("sqlite", filepath.Join(dir, "mcp.db")+"?_pragma=foreign_keys(ON)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.SetMaxOpenConns(1)
+	if _, err := raw.ExecContext(ctx, `CREATE TABLE schema_migrations (
+		version TEXT PRIMARY KEY,
+		applied_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))`); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{
+		"0001_init.sql", "0002_contextual_knowledge.sql", "0003_entity_aliases.sql",
+		"0004_tool_telemetry.sql", "0005_knowledge_fts.sql", "0006_knowledge_topic_key.sql",
+	} {
+		content, err := migrations.FS.ReadFile(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := raw.ExecContext(ctx, string(content)); err != nil {
+			t.Fatalf("aplicando %s: %v", name, err)
+		}
+		if _, err := raw.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := raw.ExecContext(ctx, `INSERT INTO knowledge (subject, context, claim, status, topic_key)
+		VALUES ('vendedor','ventas','viene de pedido.usuario_id','validated','vendedor@ventas')`); err != nil {
+		t.Fatal(err)
+	}
+	raw.Close()
+
+	s, err := Open(ctx, dir)
+	if err != nil {
+		t.Fatalf("abrir base pre-0007: %v", err)
+	}
+	defer s.Close()
+
+	var applied int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM schema_migrations WHERE version = '0007_knowledge_relations.sql'`).Scan(&applied); err != nil || applied != 1 {
+		t.Fatalf("migración 0007 aplicada = %d err=%v", applied, err)
+	}
+	fresh := proposeK(t, s, Knowledge{Subject: "vendedor", Context: "ventas", Claim: "viene de pedido.vendedor_id"})
+	rels, err := s.DetectKnowledgeRelations(ctx, fresh)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hasRelation(rels, RelationSameTopic, 1) {
+		t.Fatalf("la fila previa a 0007 debe relacionarse por topic_key, got %+v", rels)
 	}
 }

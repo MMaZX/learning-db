@@ -241,6 +241,44 @@ func aliasesDeFuente(fuente any, aliases map[string]string) map[string]string {
 	return out
 }
 
+// relacionesAJSON traduce las relaciones detectadas de una propuesta a
+// "posibles_conflictos". Siempre devuelve un arreglo (vacío, nunca null) para
+// que el contrato sea estable. El estado es el actual de la fila relacionada.
+// Para previously_rejected se añade quién/cuándo/por qué se rechazó, para que
+// el asistente lea el motivo antes de insistir.
+func relacionesAJSON(rels []store.RelatedKnowledge) []map[string]any {
+	out := make([]map[string]any, 0, len(rels))
+	for _, r := range rels {
+		resumen, _ := previewAfirmacion(r.Claim)
+		item := map[string]any{
+			"id":                 r.ID,
+			"relacion":           r.Relation,
+			"estado":             estadoLegible(r.Status),
+			"concepto":           r.Subject,
+			"afirmacion_resumen": resumen,
+		}
+		if r.Context != "" {
+			item["contexto"] = r.Context
+		}
+		if r.Score != nil {
+			item["puntaje"] = *r.Score
+		}
+		if r.Relation == store.RelationPreviouslyRejected {
+			if r.DecisionNote != "" {
+				item["motivo_rechazo"] = r.DecisionNote
+			}
+			if r.DecidedBy != "" {
+				item["rechazado_por"] = r.DecidedBy
+			}
+			if r.DecidedAt != nil {
+				item["fecha"] = *r.DecidedAt
+			}
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
 func estadoLegible(s string) string {
 	if v, ok := estadoConocimientoAEspanol[s]; ok {
 		return v

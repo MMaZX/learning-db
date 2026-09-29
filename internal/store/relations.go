@@ -29,6 +29,10 @@ const maxFTSRelations = 5
 // antes de aplicar el umbral y el tope (ordenadas por mejor score).
 const relationFTSCandidates = 50
 
+// relationsForBatch es cuántos ids de origen se consultan por sentencia en
+// RelationsFor (holgado bajo el límite de variables de SQLite).
+const relationsForBatch = 500
+
 // DetectKnowledgeRelations calcula y persiste las relaciones de la propuesta
 // id con el resto del conocimiento:
 //   - mismo topic_key: validated -> same_topic (+ supersedes_candidate si la
@@ -188,9 +192,19 @@ func (s *Store) RelationsFor(ctx context.Context, ids []int64) (map[int64][]Rela
 		args = append(args, id)
 	}
 	out := map[int64][]RelatedKnowledge{}
-	if len(args) == 0 {
-		return out, nil
+	// SQLite limita las variables por consulta (32766 desde 3.32, 999 antes):
+	// se consulta por lotes; cada id de origen cae en un único lote.
+	for start := 0; start < len(args); start += relationsForBatch {
+		end := min(start+relationsForBatch, len(args))
+		if err := s.relationsForBatch(ctx, args[start:end], out); err != nil {
+			return nil, err
+		}
 	}
+	return out, nil
+}
+
+// relationsForBatch resuelve un lote de ids de origen y acumula en out.
+func (s *Store) relationsForBatch(ctx context.Context, args []any, out map[int64][]RelatedKnowledge) error {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(args)), ",")
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT r.from_id, r.relation, r.score,
@@ -201,7 +215,7 @@ func (s *Store) RelationsFor(ctx context.Context, ids []int64) (map[int64][]Rela
 		WHERE r.from_id IN (`+placeholders+`)
 		ORDER BY r.from_id, r.id`, args...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
 
@@ -212,7 +226,7 @@ func (s *Store) RelationsFor(ctx context.Context, ids []int64) (map[int64][]Rela
 		var decidedAt sql.NullString
 		if err := rows.Scan(&from, &rel.Relation, &score, &rel.ID, &rel.Status, &rel.Subject, &rel.Context, &rel.Claim,
 			&rel.DecidedBy, &decidedAt, &rel.DecisionNote); err != nil {
-			return nil, err
+			return err
 		}
 		if score.Valid {
 			rel.Score = &score.Float64
@@ -223,5 +237,5 @@ func (s *Store) RelationsFor(ctx context.Context, ids []int64) (map[int64][]Rela
 		}
 		out[from] = append(out[from], rel)
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
