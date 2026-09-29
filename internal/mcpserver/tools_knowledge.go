@@ -92,6 +92,7 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 			for _, id := range args.IDs {
 				if _, ok := got[id]; !ok {
 					missing = append(missing, id)
+					got[id] = struct{}{} // sin duplicados en no_encontrados
 				}
 			}
 			return toJSONResult(map[string]any{
