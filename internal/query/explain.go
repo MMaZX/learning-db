@@ -3,7 +3,9 @@ package query
 import (
 	"context"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/xwb1989/sqlparser"
 
@@ -179,4 +181,28 @@ func walkTableExpr(te sqlparser.TableExpr, res *ExplainResult) {
 			walkTableExpr(inner, res)
 		}
 	}
+}
+
+// ExtractTables devuelve los nombres de tabla (en minúsculas, ordenados y sin
+// duplicados) referenciados en cualquier parte del AST: FROM, JOINs,
+// subconsultas y UNION. Los alias no cuentan: se usa el nombre real de la tabla.
+func ExtractTables(node sqlparser.SQLNode) []string {
+	set := map[string]struct{}{}
+	_ = sqlparser.Walk(func(n sqlparser.SQLNode) (bool, error) {
+		if t, ok := n.(*sqlparser.AliasedTableExpr); ok {
+			if name, ok := t.Expr.(sqlparser.TableName); ok && !name.Name.IsEmpty() {
+				// El parser inyecta "dual" en SELECT sin FROM: no es una tabla real.
+				if n := strings.ToLower(name.Name.String()); n != "dual" {
+					set[n] = struct{}{}
+				}
+			}
+		}
+		return true, nil
+	}, node)
+	out := make([]string, 0, len(set))
+	for t := range set {
+		out = append(out, t)
+	}
+	sort.Strings(out)
+	return out
 }

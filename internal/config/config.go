@@ -38,6 +38,10 @@ type Config struct {
 
 	KnowledgePath string
 	DataPath      string
+
+	// PassiveCapture activa la captura pasiva de consultas exitosas como
+	// observaciones (solo nombres de tabla). Por defecto apagada.
+	PassiveCapture bool
 }
 
 // Load lee un archivo .env (si existe) y construye la configuración.
@@ -63,6 +67,9 @@ func Load() (*Config, error) {
 	}
 
 	var err error
+	if cfg.PassiveCapture, err = getEnvBool("MCP_PASSIVE_CAPTURE", false); err != nil {
+		return nil, err
+	}
 	if cfg.DBPort, err = getEnvInt("DB_PORT", 3306); err != nil {
 		return nil, err
 	}
@@ -134,6 +141,24 @@ func getEnvInt(key string, def int) (int, error) {
 		return 0, fmt.Errorf("%s debe ser un entero: %w", key, err)
 	}
 	return n, nil
+}
+
+func getEnvBool(key string, def bool) (bool, error) {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(key)))
+	if v == "" {
+		return def, nil
+	}
+	return parseBool(key, v)
+}
+
+func parseBool(key, v string) (bool, error) {
+	switch v {
+	case "on", "true", "1":
+		return true, nil
+	case "off", "false", "0":
+		return false, nil
+	}
+	return false, fmt.Errorf("%s debe ser on/off, true/false o 1/0 (recibido %q)", key, v)
 }
 
 func getEnvDuration(key string, def time.Duration) (time.Duration, error) {

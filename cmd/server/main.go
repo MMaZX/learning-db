@@ -87,6 +87,8 @@ func run() error {
 		Store:     metaStore,
 		Logger:    logger,
 		MaxRows:   cfg.MaxRows,
+
+		PassiveCapture: cfg.PassiveCapture,
 	})
 
 	if cfg.MCPTransport == "http" {

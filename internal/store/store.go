@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -19,6 +20,7 @@ import (
 type Store struct {
 	db      *sql.DB
 	aliases aliasCache
+	now     func() time.Time // inyectable en tests; nil = time.Now
 }
 
 // Open abre (o crea) el archivo SQLite en dataPath/mcp.db y aplica las

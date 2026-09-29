@@ -20,6 +20,9 @@ type Result struct {
 	Truncated   bool             `json:"truncated"`
 	DurationMS  int64            `json:"duration_ms"`
 	SQLExecuted string           `json:"sql_executed"`
+	// Tables son las tablas referenciadas (ordenadas, sin duplicados). Es
+	// solo para uso interno (captura pasiva): no forma parte de la respuesta.
+	Tables []string `json:"-"`
 }
 
 type Config struct {
@@ -55,6 +58,7 @@ func (e *Engine) Execute(ctx context.Context, rawSQL string) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
+	tables := ExtractTables(stmt)
 	limited := security.EnforceLimit(stmt, e.cfg.MaxRows)
 	finalSQL := security.String(limited)
 
@@ -79,10 +83,11 @@ func (e *Engine) Execute(ctx context.Context, rawSQL string) (*Result, error) {
 	result, err := scanRows(rows, e.cfg.MaxRows, e.cfg.MaxColumns, e.cfg.MaxResultSizeBytes)
 	duration := time.Since(start)
 	result.DurationMS = duration.Milliseconds()
-	result.SQLExecuted = finalSQL
 	if err != nil {
 		return nil, err
 	}
+	result.SQLExecuted = finalSQL
+	result.Tables = tables
 
 	if duration >= e.cfg.SlowQueryThreshold {
 		e.logger.Warn("consulta lenta", "duration_ms", duration.Milliseconds(), "sql", finalSQL)

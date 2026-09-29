@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -36,6 +37,8 @@ func registerQueryTools(s *server.MCPServer, deps *Deps) {
 			_, _ = deps.Store.RecordQuery(ctx, entry)
 			recordAudit(ctx, deps, "consultar_base_datos", "consulta_ejecutada",
 				mustJSON(map[string]any{"sql": result.SQLExecuted, "filas": result.RowCount, "truncado": result.Truncated}), "")
+
+			capturarConsultaPasiva(ctx, deps, result.Tables)
 
 			var b strings.Builder
 			if result.RowCount > 0 {
@@ -72,4 +75,21 @@ func registerQueryTools(s *server.MCPServer, deps *Deps) {
 			})
 		}),
 	)
+}
+
+// capturarConsultaPasiva registra el conjunto de tablas de una consulta exitosa
+// como observación deduplicada (solo nombres de tabla, nunca SQL). Es un
+// efecto secundario BEST-EFFORT: con el flag apagado no hace nada y ante un
+// error solo se registra, nunca afecta la respuesta de la consulta.
+func capturarConsultaPasiva(ctx context.Context, deps *Deps, tables []string) {
+	if !deps.PassiveCapture || len(tables) == 0 {
+		return
+	}
+	// Desacoplado de la cancelación del request: una escritura corta que no
+	// debe quedar a medias porque el cliente cerró la conexión.
+	wctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
+	defer cancel()
+	if _, err := deps.Store.CapturePassiveQuery(wctx, tables); err != nil && deps.Logger != nil {
+		deps.Logger.Warn("no se pudo registrar la captura pasiva", "error", err)
+	}
 }

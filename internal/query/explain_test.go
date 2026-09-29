@@ -94,3 +94,24 @@ func TestAnalyzeSelect_UnionStillHandled(t *testing.T) {
 		t.Fatalf("esperaba advertencia de UNION, warnings=%v", res.Warnings)
 	}
 }
+
+func TestExtractTables(t *testing.T) {
+	cases := map[string][]string{
+		"SELECT * FROM pedido": {"pedido"},
+		"SELECT p.id FROM Pedido p JOIN cliente c ON c.id = p.cliente_id":               {"cliente", "pedido"},
+		"SELECT * FROM a WHERE id IN (SELECT a_id FROM b WHERE x IN (SELECT 1 FROM c))": {"a", "b", "c"},
+		"SELECT id FROM a UNION SELECT id FROM b UNION SELECT id FROM a":                {"a", "b"},
+		"SELECT * FROM (SELECT id FROM t1) sub JOIN t2 ON t2.id = sub.id":               {"t1", "t2"},
+		"SELECT 1": {},
+	}
+	for sql, want := range cases {
+		stmt, err := sqlparser.Parse(sql)
+		if err != nil {
+			t.Fatalf("parseando %q: %v", sql, err)
+		}
+		got := ExtractTables(stmt)
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Errorf("%q: got %v, want %v", sql, got, want)
+		}
+	}
+}

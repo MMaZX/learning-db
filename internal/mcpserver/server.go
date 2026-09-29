@@ -32,6 +32,10 @@ type Deps struct {
 	Store     *store.Store
 	Logger    *slog.Logger
 	MaxRows   int
+
+	// PassiveCapture: si es true, cada consulta exitosa registra (best-effort)
+	// una observación deduplicada con solo los nombres de tabla.
+	PassiveCapture bool
 }
 
 // New construye el servidor MCP con todas las tools de la v1 registradas.

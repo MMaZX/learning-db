@@ -316,6 +316,11 @@ el binario nativo es más simple.
   `relacion="previously_rejected"`, una idea similar ya fue rechazada: se
   conserva como conocimiento negativo (con `motivo_rechazo`, `rechazado_por` y
   `fecha`) y nunca aparece en `recordar_contexto`. Revísalos antes de aprobar.
+- Captura pasiva (opcional, `MCP_PASSIVE_CAPTURE=on`, apagada por defecto): cada
+  consulta exitosa de `consultar_base_datos` registra una observación con
+  agente `passive` y SOLO los nombres de tabla (nunca el SQL, literales ni
+  filas). Se deduplica por conjunto de tablas (una por 24 h) y hay un tope de 20
+  observaciones nuevas por hora. Son observaciones sin validar, no conocimiento.
 - Si `recordar_contexto` devuelve `memoria_encontrada=false`, el concepto no
   está validado: pregunta al usuario y registra la respuesta con
   `aprender_del_usuario`; no inventes tablas ni columnas.
