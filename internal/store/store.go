@@ -17,7 +17,8 @@ import (
 )
 
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	aliases aliasCache
 }
 
 // Open abre (o crea) el archivo SQLite en dataPath/mcp.db y aplica las

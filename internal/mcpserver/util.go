@@ -65,10 +65,11 @@ func mustJSON(v any) string {
 }
 
 // aliasMap construye el lookup "tabla" -> alias y "tabla.columna" -> alias
-// a partir de lo enseñado con aprender_del_usuario/actualizar_alias. Se
-// recalcula en cada llamada de tool (barato: son pocas filas) para que un
-// alias corregido se refleje de inmediato en toda respuesta posterior, sin
-// caché que pueda quedar desincronizada.
+// a partir de lo enseñado con aprender_del_usuario/actualizar_alias. La
+// lista de alias viene cacheada por el Store (invalidada en cada
+// UpsertEntityAlias, con TTL de respaldo), así que un alias corregido se
+// refleja de inmediato sin una consulta por llamada de tool. El mapa se
+// construye nuevo en cada llamada: los llamadores pueden mutarlo sin riesgo.
 func aliasMap(ctx context.Context, deps *Deps) (map[string]string, error) {
 	aliases, err := deps.Store.AllEntityAliases(ctx)
 	if err != nil {

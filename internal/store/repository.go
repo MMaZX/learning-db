@@ -349,6 +349,7 @@ func (s *Store) UpsertEntityAlias(ctx context.Context, tableName, columnName, al
 	if err != nil {
 		return nil, fmt.Errorf("guardando alias: %w", err)
 	}
+	s.aliases.invalidate()
 	return s.GetEntityAlias(ctx, tableName, columnName)
 }
 
@@ -371,8 +372,25 @@ func (s *Store) GetEntityAlias(ctx context.Context, tableName, columnName string
 }
 
 // AllEntityAliases devuelve todos los alias enseñados, usados para resolver
-// nombre real -> alias en cada respuesta de las demás tools.
+// nombre real -> alias en cada respuesta de las demás tools. El resultado se
+// cachea en memoria (ver aliasCache); UpsertEntityAlias lo invalida, así que
+// un alias corregido se ve de inmediato. Devuelve una copia: el llamador
+// puede modificarla sin afectar la caché.
 func (s *Store) AllEntityAliases(ctx context.Context) ([]EntityAlias, error) {
+	if list, ok := s.aliases.get(); ok {
+		return list, nil
+	}
+	gen := s.aliases.generation()
+	list, err := s.loadEntityAliases(ctx)
+	if err != nil {
+		return nil, err
+	}
+	s.aliases.put(gen, list)
+	return list, nil
+}
+
+// loadEntityAliases lee todos los alias directamente de sqlite.
+func (s *Store) loadEntityAliases(ctx context.Context) ([]EntityAlias, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT id, table_name, IFNULL(column_name,''), alias, IFNULL(taught_by,''), created_at, updated_at
 		FROM entity_aliases ORDER BY table_name, column_name`)
