@@ -46,7 +46,7 @@ func TestTwoStores_ConcurrentWritesNoBusy(t *testing.T) {
 		go func(st *Store, id int64) {
 			defer wg.Done()
 			// Colisiones de topic_key son esperadas; SQLITE_BUSY no.
-			if _, err := st.ApproveKnowledge(ctx, id, "admin", ""); err != nil && !strings.Contains(err.Error(), "vendedor@ventas") {
+			if _, err := st.ApproveKnowledge(ctx, id, "admin", ""); err != nil && !strings.Contains(err.Error(), "ya existe conocimiento validado") {
 				errs <- err
 			}
 		}(st, id)
