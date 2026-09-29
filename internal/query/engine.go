@@ -82,10 +82,10 @@ func (e *Engine) Execute(ctx context.Context, rawSQL string) (*Result, error) {
 
 	result, err := scanRows(rows, e.cfg.MaxRows, e.cfg.MaxColumns, e.cfg.MaxResultSizeBytes)
 	duration := time.Since(start)
-	result.DurationMS = duration.Milliseconds()
 	if err != nil {
 		return nil, err
 	}
+	result.DurationMS = duration.Milliseconds()
 	result.SQLExecuted = finalSQL
 	result.Tables = tables
 

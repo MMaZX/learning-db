@@ -48,3 +48,24 @@ func TestExecute_ReturnsTablesButNotInJSON(t *testing.T) {
 		t.Fatalf("Tables no debe serializarse: %s", b)
 	}
 }
+
+// Una consulta que supera MaxColumns hace que scanRows devuelva (nil, err);
+// Execute debe propagar el error sin desreferenciar el resultado nulo.
+func TestExecute_TooManyColumnsReturnsErrorWithoutPanic(t *testing.T) {
+	pool, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool.SetMaxOpenConns(1)
+	t.Cleanup(func() { pool.Close() })
+	if _, err := pool.Exec(`CREATE TABLE ancha (a INTEGER, b INTEGER, c INTEGER)`); err != nil {
+		t.Fatal(err)
+	}
+	e := NewEngine(pool, Config{Timeout: time.Second, MaxRows: 10, MaxColumns: 2, MaxResultSizeBytes: 1 << 20, MaxConcurrent: 1, SlowQueryThreshold: time.Hour},
+		slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	res, err := e.Execute(context.Background(), "SELECT a, b, c FROM ancha")
+	if err == nil || !strings.Contains(err.Error(), "columnas") {
+		t.Fatalf("se esperaba error de columnas, got res=%v err=%v", res, err)
+	}
+}
