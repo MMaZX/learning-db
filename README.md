@@ -225,6 +225,11 @@ Revisá la documentación de cada cliente para la sintaxis exacta si algo no
 calza (estos formatos cambian con el tiempo) — el contrato de fondo (URL +
 header `Authorization: Bearer`) es siempre el mismo.
 
+Si el cliente reserva `Authorization` para OAuth (por ejemplo, un conector
+web que no deja elegirlo como header propio), usa en su lugar el header
+`X-API-Key: <MCP_AUTH_TOKEN>` (sin el prefijo `Bearer`). El servidor acepta
+cualquiera de los dos con el mismo token.
+
 Para verificar que está vivo desde cualquiera de estos clientes,
 pregúntale directamente en el chat, por ejemplo: *"¿qué tablas hay en la
 base de datos?"* — debería usar la tool `obtener_esquema_bd`.
