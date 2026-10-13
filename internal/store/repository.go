@@ -421,6 +421,28 @@ func (s *Store) RejectKnowledge(ctx context.Context, id int64, rejectedBy, note 
 	return s.GetKnowledge(ctx, id)
 }
 
+// RevokeKnowledge revoca formalmente un conocimiento que estaba validado
+// (status 'validated' -> 'revoked'). Exige indicar quién revoca y un motivo no
+// vacío, y libera el topic_key en el índice único parcial para que el concepto
+// pueda corregirse o validarse de nuevo en el futuro.
+func (s *Store) RevokeKnowledge(ctx context.Context, id int64, revokedBy, note string) (*Knowledge, error) {
+	if strings.TrimSpace(note) == "" {
+		return nil, errors.New("el motivo de revocación es obligatorio para preservar la trazabilidad")
+	}
+	res, err := s.db.ExecContext(ctx, `
+		UPDATE knowledge
+		SET status = 'revoked', decided_by = ?, decided_at = strftime('%Y-%m-%dT%H:%M:%fZ','now'), decision_note = ?
+		WHERE id = ? AND status = 'validated'`, revokedBy, note, id)
+	if err != nil {
+		return nil, fmt.Errorf("revocando conocimiento #%d: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return nil, fmt.Errorf("no existe conocimiento validado #%d para revocar", id)
+	}
+	return s.GetKnowledge(ctx, id)
+}
+
 // --- entity_aliases ---------------------------------------------------------
 
 // UpsertEntityAlias crea o REEMPLAZA el alias de una tabla (columnName="")

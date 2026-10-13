@@ -52,6 +52,7 @@ const (
 	KnowledgeStatusValidated  = "validated"
 	KnowledgeStatusRejected   = "rejected"
 	KnowledgeStatusDeprecated = "deprecated"
+	KnowledgeStatusRevoked    = "revoked"
 )
 
 // Knowledge es un concepto de negocio con estado (proposed/validated/

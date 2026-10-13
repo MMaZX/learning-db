@@ -122,6 +122,80 @@ func TestKnowledgeRejection_KeepsHistory(t *testing.T) {
 	}
 }
 
+func TestKnowledgeRevocation_ValidatedItem(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	id, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "cortesia", Context: "ventas", Claim: "estado=10 es cortesia", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveKnowledge(ctx, id, "admin", "aprobado"); err != nil {
+		t.Fatal(err)
+	}
+
+	revoked, err := s.RevokeKnowledge(ctx, id, "supervisor", "cambio de criterio contable")
+	if err != nil {
+		t.Fatalf("RevokeKnowledge fallo inesperadamente: %v", err)
+	}
+	if revoked.Status != KnowledgeStatusRevoked {
+		t.Errorf("status = %q, want %q", revoked.Status, KnowledgeStatusRevoked)
+	}
+	if revoked.DecidedBy != "supervisor" {
+		t.Errorf("decided_by = %q, want supervisor", revoked.DecidedBy)
+	}
+	if revoked.DecisionNote != "cambio de criterio contable" {
+		t.Errorf("decision_note = %q, want 'cambio de criterio contable'", revoked.DecisionNote)
+	}
+
+	// Exclusión inmediata de recall
+	recalled, err := s.RecallValidatedKnowledge(ctx, "cortesia", "ventas", 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recalled) != 0 {
+		t.Errorf("el conocimiento revocado no debe aparecer en recall, got %d resultados", len(recalled))
+	}
+}
+
+func TestKnowledgeRevocation_EdgeCases(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// 1. No se puede revocar una propuesta que aún no está validada
+	propID, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "desc", Claim: "x", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RevokeKnowledge(ctx, propID, "admin", "motivo"); err == nil {
+		t.Errorf("revocar una propuesta 'proposed' deberia fallar")
+	}
+
+	// 2. No se puede revocar sin motivo explicativo
+	validID, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "desc2", Claim: "y", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveKnowledge(ctx, validID, "admin", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RevokeKnowledge(ctx, validID, "admin", "   "); err == nil {
+		t.Errorf("revocar con motivo vacio deberia fallar")
+	}
+
+	// 3. Revocar libera el topic_key para futuras validaciones limpias
+	if _, err := s.RevokeKnowledge(ctx, validID, "admin", "motivo valido"); err != nil {
+		t.Fatal(err)
+	}
+	newID, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "desc2", Claim: "nueva regla", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveKnowledge(ctx, newID, "admin", "nueva aprobacion"); err != nil {
+		t.Errorf("aprobar con el mismo topic_key tras revocar deberia permitirse sin conflicto, err: %v", err)
+	}
+}
+
 func TestKnowledgeVersioning_SupersedesPreviousWithoutOverwriting(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()
