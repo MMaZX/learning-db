@@ -144,3 +144,78 @@ func TestRecordandoConfiguracion_ConPreferencias(t *testing.T) {
 		t.Fatalf("preferencias recuperadas no coinciden: %+v", prefsMap)
 	}
 }
+
+func TestMigrarPreferencias_IdempotenteYPersistente(t *testing.T) {
+	st, mcpClient := newPreferencesTestServer(t)
+	ctx := context.Background()
+
+	u, err := st.CreateUser(ctx, "david", store.HashToken("token-david"))
+	if err != nil {
+		t.Fatalf("creando usuario: %v", err)
+	}
+	userCtx := ContextWithUser(ctx, u)
+
+	// 1. JSON inválido debe fallar con error
+	badReq := mcp.CallToolRequest{}
+	badReq.Params.Name = "migrar_preferencias"
+	badReq.Params.Arguments = map[string]any{"contenido_json": "{json-invalido"}
+	badRes, err := mcpClient.CallTool(userCtx, badReq)
+	if err != nil {
+		t.Fatalf("error invocando tool: %v", err)
+	}
+	if !badRes.IsError {
+		t.Fatal("se esperaba error para JSON inválido")
+	}
+
+	// 2. Migración válida
+	rawJSON := `{"tema":"oscuro","idioma":"es","atajos":{"guardar":"ctrl+s"}}`
+	req := mcp.CallToolRequest{}
+	req.Params.Name = "migrar_preferencias"
+	req.Params.Arguments = map[string]any{"contenido_json": rawJSON}
+
+	res, err := mcpClient.CallTool(userCtx, req)
+	if err != nil {
+		t.Fatalf("llamando a migrar_preferencias: %v", err)
+	}
+	if res.IsError || len(res.Content) == 0 {
+		t.Fatalf("resultado con error: %+v", res)
+	}
+
+	// 3. Verificación con recordando_configuracion
+	recReq := mcp.CallToolRequest{}
+	recReq.Params.Name = "recordando_configuracion"
+	recRes, err := mcpClient.CallTool(userCtx, recReq)
+	if err != nil || recRes.IsError {
+		t.Fatalf("recordando_configuracion falló tras migrar: %v, %+v", err, recRes)
+	}
+
+	textContent := recRes.Content[0].(mcp.TextContent)
+	var recData map[string]any
+	if err := json.Unmarshal([]byte(textContent.Text), &recData); err != nil {
+		t.Fatalf("parseando JSON: %v", err)
+	}
+	if recData["migrado"] != true || recData["tiene_preferencias"] != true {
+		t.Fatalf("se esperaba migrado=true y tiene_preferencias=true, obtenido: %+v", recData)
+	}
+
+	// 4. Segunda migración idempotente
+	rawJSON2 := `{"tema":"claro","idioma":"es","atajos":{"guardar":"ctrl+s"}}`
+	req2 := mcp.CallToolRequest{}
+	req2.Params.Name = "migrar_preferencias"
+	req2.Params.Arguments = map[string]any{"contenido_json": rawJSON2}
+	res2, err := mcpClient.CallTool(userCtx, req2)
+	if err != nil || res2.IsError {
+		t.Fatalf("segunda migración falló: %v, %+v", err, res2)
+	}
+
+	recRes2, err := mcpClient.CallTool(userCtx, recReq)
+	if err != nil || recRes2.IsError {
+		t.Fatalf("segunda llamada a recordando_configuracion falló: %v", err)
+	}
+	var recData2 map[string]any
+	json.Unmarshal([]byte(recRes2.Content[0].(mcp.TextContent).Text), &recData2)
+	prefsMap2 := recData2["preferencias"].(map[string]any)
+	if prefsMap2["tema"] != "claro" {
+		t.Fatalf("preferencia no actualizada tras re-migración: %+v", prefsMap2)
+	}
+}
