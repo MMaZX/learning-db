@@ -15,6 +15,13 @@ import (
 
 var errTipo = errors.New("tipo debe ser 'observacion' o 'hipotesis'")
 
+func resolveAuthor(ctx context.Context, fallback string) string {
+	if u, ok := UserFromContext(ctx); ok && u != nil && strings.TrimSpace(u.Username) != "" {
+		return u.Username
+	}
+	return fallback
+}
+
 func registerLearningTools(s *server.MCPServer, deps *Deps) {
 	s.AddTool(
 		mcp.NewTool("registrar_observacion",
@@ -146,11 +153,12 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			AprobadoPor string `json:"aprobado_por"`
 			Nota        string `json:"nota"`
 		}) (*mcp.CallToolResult, error) {
-			k, err := deps.Store.ApproveKnowledge(ctx, args.ID, args.AprobadoPor, args.Nota)
+			autor := resolveAuthor(ctx, args.AprobadoPor)
+			k, err := deps.Store.ApproveKnowledge(ctx, args.ID, autor, args.Nota)
 			if err != nil {
 				return toolError(err)
 			}
-			recordAudit(ctx, deps, "aprobar_conocimiento", "conocimiento_aprobado", mustJSON(map[string]any{"id": args.ID, "por": args.AprobadoPor}), "")
+			recordAudit(ctx, deps, "aprobar_conocimiento", "conocimiento_aprobado", mustJSON(map[string]any{"id": args.ID, "por": autor}), "")
 			aliases, err := aliasMap(ctx, deps)
 			if err != nil {
 				return toolError(err)
@@ -173,11 +181,12 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			RechazadoPor string `json:"rechazado_por"`
 			Nota         string `json:"nota"`
 		}) (*mcp.CallToolResult, error) {
-			k, err := deps.Store.RejectKnowledge(ctx, args.ID, args.RechazadoPor, args.Nota)
+			autor := resolveAuthor(ctx, args.RechazadoPor)
+			k, err := deps.Store.RejectKnowledge(ctx, args.ID, autor, args.Nota)
 			if err != nil {
 				return toolError(err)
 			}
-			recordAudit(ctx, deps, "rechazar_conocimiento", "conocimiento_rechazado", mustJSON(map[string]any{"id": args.ID, "por": args.RechazadoPor}), "")
+			recordAudit(ctx, deps, "rechazar_conocimiento", "conocimiento_rechazado", mustJSON(map[string]any{"id": args.ID, "por": autor}), "")
 			aliases, err := aliasMap(ctx, deps)
 			if err != nil {
 				return toolError(err)
@@ -201,11 +210,12 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			if strings.TrimSpace(args.Motivo) == "" {
 				return toolError(errors.New("el motivo de revocación es obligatorio"))
 			}
-			k, err := deps.Store.RevokeKnowledge(ctx, args.ID, args.RevocadoPor, args.Motivo)
+			autor := resolveAuthor(ctx, args.RevocadoPor)
+			k, err := deps.Store.RevokeKnowledge(ctx, args.ID, autor, args.Motivo)
 			if err != nil {
 				return toolError(err)
 			}
-			recordAudit(ctx, deps, "revocar_conocimiento", "conocimiento_revocado", mustJSON(map[string]any{"id": args.ID, "por": args.RevocadoPor, "motivo": args.Motivo}), "")
+			recordAudit(ctx, deps, "revocar_conocimiento", "conocimiento_revocado", mustJSON(map[string]any{"id": args.ID, "por": autor, "motivo": args.Motivo}), "")
 			aliases, err := aliasMap(ctx, deps)
 			if err != nil {
 				return toolError(err)
@@ -324,6 +334,8 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 				"formula":  args.Formula,
 			}
 
+			autor := resolveAuthor(ctx, args.EnsenadoPor)
+
 			id, err := deps.Store.ProposeKnowledge(ctx, store.Knowledge{
 				Subject:      args.Concepto,
 				Context:      args.Contexto,
@@ -332,13 +344,13 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 				SourceJSON:   mustJSON(fuente),
 				Version:      version,
 				SupersedesID: reemplazaAID,
-				TaughtBy:     args.EnsenadoPor,
+				TaughtBy:     autor,
 			})
 			if err != nil {
 				return toolError(err)
 			}
 			recordAudit(ctx, deps, "aprender_del_usuario", "propuesta_creada_desde_ensenanza",
-				mustJSON(map[string]any{"id": id, "concepto": args.Concepto, "contexto": args.Contexto}), "")
+				mustJSON(map[string]any{"id": id, "concepto": args.Concepto, "contexto": args.Contexto, "ensenado_por": autor}), "")
 
 			conflictos := posiblesConflictos(ctx, deps, id)
 
@@ -349,7 +361,7 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 
 			var aliasResultados []map[string]any
 			for _, a := range args.Alias {
-				res := aplicarAlias(ctx, deps, snap, a.Referencia, a.Alias, args.EnsenadoPor)
+				res := aplicarAlias(ctx, deps, snap, a.Referencia, a.Alias, autor)
 				aliasResultados = append(aliasResultados, res)
 				recordAudit(ctx, deps, "aprender_del_usuario", "alias_aplicado", mustJSON(res), "")
 			}
@@ -390,7 +402,8 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 			if err != nil {
 				return toolError(err)
 			}
-			res := aplicarAlias(ctx, deps, snap, args.Referencia, args.Alias, args.ActualizadoPor)
+			autor := resolveAuthor(ctx, args.ActualizadoPor)
+			res := aplicarAlias(ctx, deps, snap, args.Referencia, args.Alias, autor)
 			recordAudit(ctx, deps, "actualizar_alias", "alias_aplicado", mustJSON(res), "")
 			if aplicado, _ := res["aplicado"].(bool); !aplicado {
 				return toJSONResult(res)
