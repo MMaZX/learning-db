@@ -1,413 +1,116 @@
 # db-intelligence-mcp
 
-MCP Server en Go que le da a cualquier asistente de IA compatible con MCP
-(Claude, Codex, Gemini, OpenCode...) acceso de solo lectura e inteligente a
-la base de datos `database_multi_final` (contenedor `manager_mysql`).
+Servidor MCP en Go para consultar y explorar bases de datos MySQL con validación estricta de solo lectura, caché de esquema y persistencia de contexto en SQLite.
 
-No es "un MCP que ejecuta SQL a secas": separa **schema** (hechos),
-**documentación de negocio**, **observaciones**, **propuestas** y
-**conocimiento validado**, y tiene una regla central: si no existe
-conocimiento validado sobre un concepto, el agente debe **preguntarte a ti**
-en vez de inventar una relación.
+## Requisitos
 
----
+- Go 1.22+ (para compilar desde código) o Docker.
+- Acceso a una base de datos MySQL con permisos de solo lectura (`SELECT`, `SHOW VIEW`).
 
-## 1. ¿Qué necesito tener corriendo?
+## Configuración (`.env`)
 
-Solo el contenedor `manager_mysql` (ya está corriendo), publicando MySQL en
-el puerto `127.0.0.1:3307` (o el host/puerto que corresponda si el MCP corre
-en otra máquina de la red — ver sección 3).
-
-No hace falta compilar nada tú mismo: ya hay binarios listos en `dist/`.
-
-```
-dist/
-├── db-intelligence-mcp-linux-amd64       ← para Linux (esta máquina)
-└── db-intelligence-mcp-windows-amd64.exe ← para Windows
-```
-
-Son binarios estáticos (no dependen de nada más instalado en el sistema:
-sin cgo, sin librerías de MySQL/SQLite externas). Copia el que corresponda a
-donde lo vayas a usar.
-
----
-
-## 2. Crear el usuario de solo lectura en MySQL
-
-El MCP necesita un usuario dedicado con **únicamente** `SELECT` y
-`SHOW VIEW` sobre la base de datos — nunca uses un usuario con permisos de
-escritura, aunque el validador SQL del MCP (capa `internal/security`) ya
-bloquee cualquier cosa que no sea `SELECT`.
-
-Ejecuta con un usuario administrador en MySQL:
-
-```sql
-CREATE USER 'sigea_mcp_auditor'@'%' IDENTIFIED BY 'tu_contraseña_segura';
-GRANT SELECT, SHOW VIEW ON `database_multi_final`.* TO 'sigea_mcp_auditor'@'%';
-FLUSH PRIVILEGES;
-```
-
----
-
-## 3. Levantar el servidor MCP (modo HTTP — recomendado)
-
-Desde este cambio, el MCP soporta **`MCP_TRANSPORT=http`**: un único
-proceso queda escuchando y **cualquier cantidad de clientes/sesiones se
-conectan a la vez** contra ese mismo proceso, compartiendo pool de MySQL y
-store de metadata (diseñados para eso). Es el contrato recomendado ahora en
-vez de que cada cliente MCP levante su propio proceso por stdio.
-
-Configurá `.env` (copiá `.env.example`) con, como mínimo:
+Copia `.env.example` a `.env` y ajusta las variables de conexión:
 
 ```env
+# Modo de transporte: 'http' (recomendado) o 'stdio'
 MCP_TRANSPORT=http
-MCP_HTTP_ADDR=0.0.0.0:8080   # o 127.0.0.1:8080 si solo se accede desde esta misma máquina
-MCP_AUTH_TOKEN=un-token-largo-y-secreto   # obligatorio en modo http
+MCP_HTTP_ADDR=0.0.0.0:8080
+MCP_AUTH_TOKEN=tu-token-secreto
 
+# Conexión MySQL
 DB_HOST=127.0.0.1
-DB_PORT=3307
-DB_DATABASE=database_multi_final
-DB_USERNAME=sigea_mcp_auditor
-DB_PASSWORD=<la que generó/usaste en la sección 2>
+DB_PORT=3306
+DB_DATABASE=mi_base_de_datos
+DB_USERNAME=usuario_lectura
+DB_PASSWORD=clave_lectura
 
-MCP_KNOWLEDGE_PATH=/home/fulanito/development/mcp-bd/knowledge
-MCP_DATA_PATH=/home/fulanito/development/mcp-bd/data
+# Rutas locales
+MCP_DATA_PATH=./data
+MCP_KNOWLEDGE_PATH=./knowledge
 ```
 
-Y arrancá el binario (lee `.env` del directorio desde el que se ejecuta):
+## Compilación y ejecución
+
+### Binario local
 
 ```bash
-cd /home/fulanito/development/mcp-bd
-./dist/db-intelligence-mcp-linux-amd64
+# Compilar
+go build -o db-intelligence-mcp ./cmd/server
+
+# Ejecutar
+./db-intelligence-mcp
 ```
 
-Vas a ver en el log: `MCP listo, sirviendo por HTTP`. El servidor queda
-escuchando en `http://<MCP_HTTP_ADDR>/mcp` — ese es el contrato que copian
-todos los clientes en la sección 4: **URL + token**, nada de `command`/`env`
-por cliente.
-
-Notas:
-
-- No hay TLS en el binario. Si `MCP_HTTP_ADDR` usa `0.0.0.0` (alcanzable
-  desde otras máquinas de la red), restringí el acceso por firewall/VPN a la
-  red interna de confianza. Para HTTPS o exposición más amplia, ponelo
-  detrás de un proxy (Nginx/Caddy) o un túnel — no lo resuelve el binario.
-- Para que quede corriendo persistente (no solo mientras tengas la terminal
-  abierta), usá Docker (`MCP_TRANSPORT=http` en `.env`, descomentar el
-  mapeo de puerto en `docker-compose.yml` y `docker compose up -d`) o un
-  servicio `systemd` con el mismo binario + `.env`.
-- El **modo stdio** (un proceso por cliente, sin multi-sesión) sigue
-  existiendo como alternativa — ver sección 5 — pero HTTP es el contrato
-  recomendado de acá en adelante.
-
----
-
-## 4. Conectar clientes al nuevo contrato (HTTP + token)
-
-En todos los casos de abajo, el servidor MCP se llama **`ia-jarvis-gr`**
-(así aparece, por ejemplo, con el prefijo `mcp__ia-jarvis-gr__*` en Claude
-Code) y los tres datos que necesitás son los de la sección 3:
-
-- `MCP_URL` = `http://<MCP_HTTP_ADDR>/mcp` (ej. `http://127.0.0.1:8080/mcp`,
-  o `http://<IP-del-servidor>:8080/mcp` si te conectás desde otra máquina)
-- `MCP_AUTH_TOKEN` = el token que pusiste en `.env`
-
-### 4.1 Claude Code
+### Docker / Docker Compose
 
 ```bash
-claude mcp add --transport http ia-jarvis-gr http://<HOST>:8080/mcp \
-  -H "Authorization: Bearer <MCP_AUTH_TOKEN>" \
-  -s local
+docker compose up -d
 ```
 
-`-s local` lo registra solo para vos en esta máquina. Para compartirlo con
-el equipo vía `.mcp.json` versionado, usá `-s project` en su lugar.
+## Conexión con clientes MCP
 
-Comandos útiles para administrarlo después:
+### Modo HTTP
 
-```bash
-claude mcp get ia-jarvis-gr
-claude mcp remove ia-jarvis-gr -s local
-claude mcp list
-```
+El servidor expone el endpoint `/mcp`. En clientes como Claude Code, Cursor u OpenCode, configura la conexión con la URL y el token:
 
-### 4.2 Claude Desktop
+- **URL**: `http://localhost:8080/mcp`
+- **Header**: `Authorization: Bearer <MCP_AUTH_TOKEN>` o `X-API-Key: <MCP_AUTH_TOKEN>`
 
-Edita el archivo de configuración (Linux/WSL:
-`~/.config/Claude/claude_desktop_config.json`; Windows:
-`%APPDATA%\Claude\claude_desktop_config.json`):
+### Modo stdio
+
+Para clientes que ejecutan el proceso localmente:
 
 ```json
 {
   "mcpServers": {
-    "ia-jarvis-gr": {
-      "type": "http",
-      "url": "http://<HOST>:8080/mcp",
-      "headers": {
-        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
+    "db-intelligence": {
+      "command": "/ruta/absoluta/a/db-intelligence-mcp",
+      "env": {
+        "MCP_TRANSPORT": "stdio",
+        "DB_HOST": "127.0.0.1",
+        "DB_PORT": "3306",
+        "DB_DATABASE": "mi_base_de_datos",
+        "DB_USERNAME": "usuario_lectura",
+        "DB_PASSWORD": "clave_lectura",
+        "MCP_DATA_PATH": "/ruta/absoluta/a/data"
       }
     }
   }
 }
 ```
 
-Reinicia Claude Desktop por completo después de guardar.
+## Herramientas (Tools)
 
-### 4.3 Codex CLI
+### Esquema
+- `obtener_esquema_bd`: Lista tablas, vistas y conteos generales.
+- `obtener_esquema_tabla`: Detalle de columnas, tipos, índices y claves foráneas.
+- `buscar_en_base_datos`: Busca tablas o columnas por coincidencia de nombre.
+- `refrescar_esquema`: Actualiza la caché del esquema en memoria.
 
-Bloque en `~/.codex/config.toml`. El token va por variable de entorno, no
-en el archivo:
+### Consultas
+- `consultar_base_datos`: Ejecuta consultas SQL. Valida mediante AST que solo contengan sentencias `SELECT`.
+- `explicar_consulta`: Ejecuta `EXPLAIN` sobre una consulta para analizar el plan de ejecución.
 
-```toml
-[mcp_servers.ia-jarvis-gr]
-url = "http://<HOST>:8080/mcp"
-bearer_token_env_var = "IA_JARVIS_GR_TOKEN"
-```
+### Contexto y conocimiento
+- `recordar_contexto`: Recupera conocimiento validado relevante para la consulta actual.
+- `buscar_conocimiento`: Busca reglas y notas de negocio por texto.
+- `obtener_conocimiento_por_id`: Consulta entradas específicas por su identificador.
+- `obtener_conocimiento_validado`: Devuelve el conocimiento aprobado para tablas o conceptos.
+- `obtener_conocimiento_negocio`: Lee archivos markdown de documentación de negocio.
+- `obtener_entidad` y `obtener_relaciones`: Consulta entidades del modelo y sus vínculos.
 
-Y en el entorno desde donde corras Codex:
+### Aprendizaje y memoria
+- `aprender_del_usuario`: Guarda aclaraciones o reglas explicadas por el usuario.
+- `registrar_observacion`: Guarda notas sobre comportamientos o particularidades detectadas.
+- `proponer_conocimiento`: Registra propuestas de reglas para posterior revisión.
+- `obtener_conocimiento_pendiente`: Lista propuestas sin validar.
+- `aprobar_conocimiento` y `rechazar_conocimiento`: Gestiona el estado de las propuestas.
+- `actualizar_alias`: Asocia nombres alternativos a tablas o conceptos.
 
-```bash
-export IA_JARVIS_GR_TOKEN='<MCP_AUTH_TOKEN>'
-```
+### Telemetría
+- `obtener_estadisticas_uso`: Muestra métricas de uso de herramientas y consultas.
 
-### 4.4 Gemini CLI
-
-`mcpServers` en `~/.gemini/settings.json`:
-
-```json
-{
-  "mcpServers": {
-    "ia-jarvis-gr": {
-      "httpUrl": "http://<HOST>:8080/mcp",
-      "headers": {
-        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
-      }
-    }
-  }
-}
-```
-
-### 4.5 OpenCode
-
-Sección `mcp` en `opencode.json` (global en
-`~/.config/opencode/opencode.json`, o de proyecto):
-
-```json
-{
-  "mcp": {
-    "ia-jarvis-gr": {
-      "type": "remote",
-      "url": "http://<HOST>:8080/mcp",
-      "enabled": true,
-      "headers": {
-        "Authorization": "Bearer <MCP_AUTH_TOKEN>"
-      }
-    }
-  }
-}
-```
-
-Revisá la documentación de cada cliente para la sintaxis exacta si algo no
-calza (estos formatos cambian con el tiempo) — el contrato de fondo (URL +
-header `Authorization: Bearer`) es siempre el mismo.
-
-Si el cliente reserva `Authorization` para OAuth (por ejemplo, un conector
-web que no deja elegirlo como header propio), usa en su lugar el header
-`X-API-Key: <MCP_AUTH_TOKEN>` (sin el prefijo `Bearer`). El servidor acepta
-cualquiera de los dos con el mismo token.
-
-Para verificar que está vivo desde cualquiera de estos clientes,
-pregúntale directamente en el chat, por ejemplo: *"¿qué tablas hay en la
-base de datos?"* — debería usar la tool `obtener_esquema_bd`.
-
----
-
-### 4.6 Prompt `jarvis` (persona + flujo, versionado con el servidor)
-
-Además de las tools, el servidor publica un prompt MCP llamado `jarvis` con un
-argumento `peticion` (tu pregunta). Trae la personalidad y el flujo de trabajo
-(recordar contexto primero, validar códigos antes del SQL, aprender del
-usuario) y va con el binario: no hay que copiar archivos ni auto-actualizar.
-
-- **Claude Code:** invócalo como `/mcp__<nombre-del-servidor>__jarvis <tu pregunta>`.
-  `<nombre-del-servidor>` es el nombre que tú le diste al registrarlo en el
-  cliente (`claude mcp add <nombre> ...` o `~/.claude.json`), no lo define el
-  servidor; por ejemplo, si lo registraste como `ia-jarvis-gr`, será
-  `/mcp__ia-jarvis-gr__jarvis`.
-- **Otros clientes MCP:** exponen los prompts en su propia interfaz (menú de
-  prompts o comandos slash, según el cliente).
-- El texto vive en `internal/mcpserver/prompts/jarvis.md` (derivado de
-  `.claude/commands/jarvis.md`; ambos deben mantenerse sincronizados).
-
-## 5. Modo stdio (alternativa sin multi-sesión)
-
-Si preferís que cada cliente levante su **propio proceso** (sin compartir
-sesión con nadie más, y sin necesidad de dejar nada escuchando en un
-puerto), el binario lo sigue soportando: es el comportamiento por defecto
-(`MCP_TRANSPORT=stdio`, o directamente si no seteás esa variable).
-
-Ejemplo con Claude Code:
-
-```bash
-claude mcp add ia-jarvis-gr \
-  -e DB_HOST=127.0.0.1 \
-  -e DB_PORT=3307 \
-  -e DB_DATABASE=database_multi_final \
-  -e DB_USERNAME=sigea_mcp_auditor \
-  -e DB_PASSWORD='<la contraseña real>' \
-  -e MCP_KNOWLEDGE_PATH=/home/fulanito/development/mcp-bd/knowledge \
-  -e MCP_DATA_PATH=/home/fulanito/development/mcp-bd/data \
-  -s local \
-  -- /home/fulanito/development/mcp-bd/dist/db-intelligence-mcp-linux-amd64
-```
-
-Mismo `env` (7 variables) aplica a Claude Desktop, Codex, Gemini CLI y
-OpenCode en su variante `command` + `env`/`environment` (no `url`/`headers`)
-— revisá la documentación de cada uno para el nombre exacto del campo.
-
-Nota Windows: si vas a correr el `.exe` **en otra computadora** (no en la
-misma máquina que Docker/MySQL), `127.0.0.1` no la va a encontrar — usá el
-modo HTTP de la sección 3/4 en su lugar, es justamente para ese caso.
-
----
-
-## 6. Volver a compilar (si cambias el código)
-
-```bash
-cd /home/fulanito/development/mcp-bd
-
-# Linux
-CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags="-s -w" \
-  -o dist/db-intelligence-mcp-linux-amd64 ./cmd/server
-
-# Windows
-CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags="-s -w" \
-  -o dist/db-intelligence-mcp-windows-amd64.exe ./cmd/server
-```
-
-No hace falta reiniciar nada para que el MCP "aprenda" — eso se hace en
-caliente con `aprender_del_usuario` / editando `knowledge/*.md` (ver sección
-7). Solo recompilas si cambias el **código Go** (una tool nueva, una regla
-de seguridad nueva, etc.). Si estás sirviendo en modo HTTP, recompilar
-implica reiniciar el proceso — eso sí corta las sesiones activas en ese
-momento (los clientes deberían reconectar solos).
-
-Si prefieres Docker en vez de un binario suelto, sigue existiendo esa opción
-(`Dockerfile` / `docker-compose.yml`), pero para uso diario en esta máquina
-el binario nativo es más simple.
-
----
-
-## 7. Cómo "enseñarle" cosas (recordatorio rápido)
-
-- Recuperación al iniciar otra sesión: el servidor indica al cliente MCP que
-  llame primero a `recordar_contexto` con la petición completa. Esta tool busca
-  de una vez la memoria validada relevante, tolera variaciones de palabras y
-  evita volver a descubrir relaciones que ya fueron aprobadas.
-- Contrato de 1 llamada: `recordar_contexto` es la ÚNICA y PRIMERA tool para
-  recordar contexto de negocio en una sesión o tarea nueva; su respuesta ya
-  trae la fuente (tablas/columnas/relación/fórmula) y el alias resuelto de
-  cada dato, así que no hace falta una segunda llamada para recordar.
-  `buscar_conocimiento` queda para auditoría amplia (documentación +
-  propuestas + observaciones, no solo lo validado) y `obtener_conocimiento_validado`
-  para una verificación puntual de un concepto exacto justo antes de escribir
-  SQL; ninguna de las dos reemplaza a `recordar_contexto` para el recuerdo de sesión.
-- Modo compacto: `recordar_contexto(detalle="compacto")` devuelve por cada
-  recuerdo solo `id`, `concepto`, `contexto`, `afirmacion_preview` (~160
-  caracteres, con `truncado`), `tablas` y `version`; el detalle completo de los
-  que hagan falta se pide con `obtener_conocimiento_por_id` (solo validados).
-  Sin `detalle` (o `completo`) la respuesta es la de siempre.
-- Conflictos al proponer: `proponer_conocimiento`, `aprender_del_usuario`,
-  `obtener_conocimiento_pendiente` y `aprobar_conocimiento` devuelven
-  `posibles_conflictos` (siempre un arreglo): conocimiento parecido ya validado o
-  propuesto (mismo concepto+contexto o texto muy similar). Si una entrada tiene
-  `relacion="previously_rejected"`, una idea similar ya fue rechazada: se
-  conserva como conocimiento negativo (con `motivo_rechazo`, `rechazado_por` y
-  `fecha`) y nunca aparece en `recordar_contexto`. Revísalos antes de aprobar.
-- Captura pasiva (opcional, `MCP_PASSIVE_CAPTURE=on`, apagada por defecto): cada
-  consulta exitosa de `consultar_base_datos` registra una observación con
-  agente `passive` y SOLO los nombres de tabla (nunca el SQL, literales ni
-  filas). Se deduplica por conjunto de tablas (una por 24 h) y hay un tope de 20
-  observaciones nuevas por hora. Son observaciones sin validar, no conocimiento.
-- Si `recordar_contexto` devuelve `memoria_encontrada=false`, el concepto no
-  está validado: pregunta al usuario y registra la respuesta con
-  `aprender_del_usuario`; no inventes tablas ni columnas.
-- Un mismo concepto + contexto tiene una única versión validada (`topic_key`):
-  al aprobar una versión nueva que reemplaza a otra, la anterior queda
-  `deprecated`.
-- Documentación de negocio a mano: edita `knowledge/business/*.md` y
-  `knowledge/index.md`. Se relee solo, sin reiniciar.
-- Enseñanza guiada en conversación: cuando el asistente te pregunte de dónde
-  sale un dato (porque `obtener_conocimiento_validado` no encontró nada), tú
-  le respondes y él llama a `aprender_del_usuario`. Queda como propuesta.
-- Tú apruebas con `aprobar_conocimiento` (puedes pedirle al asistente que lo
-  haga, dándole el ID de la propuesta y tu nombre) para que quede como
-  conocimiento validado y reutilizable en el futuro.
-- Alias legibles: cuando enseñas de dónde sale un dato, también puedes
-  enseñar cómo se debe *llamar* esa tabla/columna al hablar contigo (ej.
-  `movimientostock` → "movimientos de stock", `codNotaSalida` → "id"), pasando
-  `alias` a `aprender_del_usuario`. A diferencia del resto de la enseñanza,
-  el alias se aplica de inmediato, sin pasar por `aprobar_conocimiento`: es
-  solo un nombre de presentación. Para corregir un alias ya enseñado, usa
-  `actualizar_alias` — se resuelve en el momento de responder, así que
-  corregirlo actualiza al instante cómo se presenta todo el conocimiento que
-  ya referencia esa tabla/columna, sin tener que volver a enseñarlo. A partir
-  de ahí, el asistente debe usar el alias y no el nombre crudo de base de
-  datos al hablarte de esa entidad.
-
----
-
-## 8. Las 21 tools disponibles
-
-Prioridad para recordar contexto: 1) `recordar_contexto` (siempre primero, con
-la petición completa); `buscar_conocimiento` es auditoría amplia y
-`obtener_conocimiento_validado` la verificación exacta antes de escribir SQL.
-
-`obtener_esquema_bd`, `obtener_esquema_tabla`, `buscar_en_base_datos`,
-`refrescar_esquema`, `consultar_base_datos`, `explicar_consulta`,
-`recordar_contexto`, `obtener_conocimiento_negocio`, `buscar_conocimiento`,
-`obtener_conocimiento_validado`, `obtener_conocimiento_por_id`, `obtener_entidad`, `obtener_relaciones`,
-`registrar_observacion`, `proponer_conocimiento`, `aprender_del_usuario`,
-`obtener_conocimiento_pendiente`, `aprobar_conocimiento`,
-`rechazar_conocimiento`, `actualizar_alias`, `obtener_estadisticas_uso`
-(contador de llamadas por tool, para medir el uso real).
-
----
-
-## 9. Seguridad (resumen)
-
-- El usuario de solo lectura (creado con la sección 2, ej.
-  `sigea_mcp_auditor`) solo tiene `SELECT`/`SHOW VIEW` sobre
-  `database_multi_final` — no puede escribir aunque quisiera.
-- Aparte de eso, el MCP valida cada SQL por AST (no regex) y rechaza
-  cualquier cosa que no sea `SELECT`/`UNION`, sentencias múltiples o
-  bloqueos explícitos, antes de que llegue a MySQL.
-- Las credenciales de MySQL viven solo en `.env` (que está en `.gitignore`)
-  — nunca se le entregan al modelo como texto que pueda repetir.
-- En modo HTTP, `MCP_AUTH_TOKEN` es la única barrera de acceso al proceso:
-  tratalo como una credencial (no lo commitees, no lo pegues en chats) y
-  restringí `MCP_HTTP_ADDR` por red/firewall si no necesitás acceso amplio.
-
----
-
-## 10. Estructura del proyecto (para referencia)
-
-```
-cmd/server/          punto de entrada
-internal/config/      carga de variables de entorno
-internal/database/    pool MySQL read-only reforzado
-internal/schema/      introspección + caché + diff de schema
-internal/security/    validador SQL (AST)
-internal/query/       query engine (límites, timeout, concurrencia) + EXPLAIN
-internal/knowledge/   carga de knowledge/index.md + knowledge/business/*.md
-internal/store/       metadata en SQLite (historial, auditoría, observaciones, conocimiento)
-internal/mcpserver/   tools MCP + traducción a español (traduccion.go)
-migrations/           esquema SQLite embebido
-knowledge/            documentación funcional + índice
-dist/                 binarios ya compilados (Linux y Windows)
-```
-
-## 11. Tests
+## Tests
 
 ```bash
 go test ./...
