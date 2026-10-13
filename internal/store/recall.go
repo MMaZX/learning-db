@@ -60,7 +60,12 @@ func (s *Store) RecallValidatedKnowledge(ctx context.Context, task, contextHint 
 	terms := recallTerms(query)
 	normalizedContext := normalizeRecallText(contextHint)
 
-	if ftsQuery := buildFTSQuery(task, contextHint); ftsQuery != "" {
+	aliases, _ := s.AllEntityAliases(ctx)
+	if len(aliases) > 0 {
+		terms = expandTermsWithAliases(query, terms, aliases)
+	}
+
+	if ftsQuery := buildFTSQueryFromTerms(terms); ftsQuery != "" {
 		out, err := s.recallViaFTS(ctx, ftsQuery, query, normalizedContext, terms, limit)
 		if err == nil && len(out) > 0 {
 			return out, nil
@@ -86,23 +91,125 @@ func buildFTSQuery(task, contextHint string) string {
 	if normalized == "" {
 		return ""
 	}
+	return buildFTSQueryFromTerms(recallTerms(normalized))
+}
+
+// buildFTSQueryFromTerms genera la expresión MATCH de FTS5 a partir de una
+// lista de términos ya filtrados y/o expandidos.
+func buildFTSQueryFromTerms(terms []string) string {
+	if len(terms) == 0 {
+		return ""
+	}
 	seen := map[string]bool{}
-	tokens := make([]string, 0)
-	for _, field := range strings.Fields(normalized) {
-		// Mismo filtro que recallTerms: sin stopwords/tokens cortos, un "de"
-		// haría que cualquier tarea acierte conceptos como "movimientos de
-		// stock" (falso positivo con memoria_encontrada=true).
-		if seen[field] || len([]rune(field)) < 3 || recallStopWords[field] {
+	tokens := make([]string, 0, len(terms))
+	for _, term := range terms {
+		if seen[term] || len([]rune(term)) < 3 || recallStopWords[term] {
 			continue
 		}
-		seen[field] = true
-		escaped := strings.ReplaceAll(field, `"`, `""`)
+		seen[term] = true
+		escaped := strings.ReplaceAll(term, `"`, `""`)
 		tokens = append(tokens, `"`+escaped+`"`)
 	}
 	if len(tokens) == 0 {
 		return ""
 	}
 	return strings.Join(tokens, " OR ")
+}
+
+// expandTermsWithAliases expande los términos de búsqueda bidireccionalmente
+// usando los alias de entidades cacheados en memoria.
+// 1. Si el usuario busca términos de un alias coloquial, inyecta la tabla y columna técnica.
+// 2. Si el usuario busca nombres técnicos, inyecta los términos del alias legible.
+func expandTermsWithAliases(query string, terms []string, aliases []EntityAlias) []string {
+	if len(aliases) == 0 {
+		return terms
+	}
+	expanded := make([]string, len(terms))
+	copy(expanded, terms)
+	seen := map[string]bool{}
+	for _, t := range terms {
+		seen[t] = true
+	}
+
+	queryPadded := " " + query + " "
+
+	for _, a := range aliases {
+		normAlias := normalizeRecallText(a.Alias)
+		normTable := normalizeRecallText(a.TableName)
+		normCol := normalizeRecallText(a.ColumnName)
+
+		// Dirección 1: Alias coloquial -> Nombre técnico (tabla / columna)
+		aliasMatched := false
+		if normAlias != "" {
+			if strings.Contains(queryPadded, " "+normAlias+" ") {
+				aliasMatched = true
+			} else {
+				for _, at := range recallTerms(normAlias) {
+					if seen[at] {
+						aliasMatched = true
+						break
+					}
+				}
+			}
+		}
+
+		if aliasMatched {
+			if normTable != "" {
+				for _, tt := range recallTerms(normTable) {
+					if !seen[tt] {
+						seen[tt] = true
+						expanded = append(expanded, tt)
+					}
+				}
+			}
+			if normCol != "" {
+				for _, ct := range recallTerms(normCol) {
+					if !seen[ct] {
+						seen[ct] = true
+						expanded = append(expanded, ct)
+					}
+				}
+			}
+		}
+
+		// Dirección 2: Nombre técnico -> Alias coloquial
+		technicalMatched := false
+		if normTable != "" {
+			if strings.Contains(queryPadded, " "+normTable+" ") {
+				technicalMatched = true
+			} else {
+				for _, tt := range recallTerms(normTable) {
+					if seen[tt] {
+						technicalMatched = true
+						break
+					}
+				}
+			}
+		}
+		if normCol != "" && !technicalMatched {
+			if strings.Contains(queryPadded, " "+normCol+" ") {
+				technicalMatched = true
+			} else {
+				for _, ct := range recallTerms(normCol) {
+					if seen[ct] {
+						technicalMatched = true
+						break
+					}
+				}
+			}
+		}
+
+		if technicalMatched && normAlias != "" {
+			for _, at := range recallTerms(normAlias) {
+				if !seen[at] {
+					seen[at] = true
+					expanded = append(expanded, at)
+				}
+			}
+		}
+	}
+
+	return expanded
 }
 
 // recallViaFTS busca candidatos usando el índice knowledge_fts, filtrando a

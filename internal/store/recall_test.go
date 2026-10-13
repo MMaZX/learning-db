@@ -247,3 +247,92 @@ func TestScoreRecallCandidate_EmptySourceJSONGivesNoScore(t *testing.T) {
 		t.Errorf("score = %d, quería 0 (SourceJSON vacío no debe puntuar)", got)
 	}
 }
+
+func TestRecallValidatedKnowledge_BidirectionalAliasExpansion(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Alias 1: tabla técnica -> alias coloquial
+	if _, err := s.UpsertEntityAlias(ctx, "pedidosventa", "", "facturas", "admin"); err != nil {
+		t.Fatalf("UpsertEntityAlias: %v", err)
+	}
+	// Alias 2: columna técnica -> alias coloquial
+	if _, err := s.UpsertEntityAlias(ctx, "clientes", "fec_nac", "fecha de nacimiento", "admin"); err != nil {
+		t.Fatalf("UpsertEntityAlias: %v", err)
+	}
+
+	// Conocimiento A: usa nombre técnico "pedidosventa"
+	idA := seedValidatedKnowledge(t, s, ctx, Knowledge{
+		Subject: "pedidosventa",
+		Context: "ventas",
+		Claim:   "Los registros de ventas aprobadas residen en pedidosventa",
+	})
+
+	// Conocimiento B: usa nombre técnico de columna "fec_nac"
+	idB := seedValidatedKnowledge(t, s, ctx, Knowledge{
+		Subject: "clientes.fec_nac",
+		Context: "clientes",
+		Claim:   "fec_nac guarda la fecha en formato YYYY-MM-DD",
+	})
+
+	// 1. Dirección 1: El usuario busca por el alias coloquial "facturas",
+	// debe recuperar el conocimiento A que sólo menciona "pedidosventa".
+	found, err := s.RecallValidatedKnowledge(ctx, "consultar facturas emitidas", "", 20)
+	if err != nil {
+		t.Fatalf("RecallValidatedKnowledge error: %v", err)
+	}
+	if len(found) == 0 || found[0].ID != idA {
+		t.Fatalf("esperaba recuperar conocimiento de pedidosventa al buscar por 'facturas', got %+v", found)
+	}
+
+	// 2. Dirección 1 para columna: buscar por "fecha de nacimiento",
+	// debe recuperar conocimiento B ("fec_nac").
+	found, err = s.RecallValidatedKnowledge(ctx, "donde esta la fecha de nacimiento", "", 20)
+	if err != nil {
+		t.Fatalf("RecallValidatedKnowledge error: %v", err)
+	}
+	if len(found) == 0 || found[0].ID != idB {
+		t.Fatalf("esperaba recuperar conocimiento de clientes.fec_nac al buscar por 'fecha de nacimiento', got %+v", found)
+	}
+
+	// 3. Dirección 2: El conocimiento C usa alias coloquial "remitos",
+	// el usuario busca por el nombre técnico de tabla "albaranes",
+	// debe recuperar conocimiento C.
+	if _, err := s.UpsertEntityAlias(ctx, "albaranes", "", "remitos", "admin"); err != nil {
+		t.Fatalf("UpsertEntityAlias: %v", err)
+	}
+	idC := seedValidatedKnowledge(t, s, ctx, Knowledge{
+		Subject: "remitos",
+		Context: "logistica",
+		Claim:   "Los remitos de entrega deben firmarse al recibir el paquete",
+	})
+
+	found, err = s.RecallValidatedKnowledge(ctx, "albaranes pendientes de entrega", "", 20)
+	if err != nil {
+		t.Fatalf("RecallValidatedKnowledge error: %v", err)
+	}
+	if len(found) == 0 || found[0].ID != idC {
+		t.Fatalf("esperaba recuperar conocimiento de remitos al buscar por 'albaranes', got %+v", found)
+	}
+
+	// 4. Triangulación de aislamiento: término sin relación no debe retornar nada.
+	found, err = s.RecallValidatedKnowledge(ctx, "computadoras portatiles sin stock", "", 20)
+	if err != nil {
+		t.Fatalf("RecallValidatedKnowledge error: %v", err)
+	}
+	if len(found) != 0 {
+		t.Fatalf("búsqueda no relacionada no debe devolver resultados, got %+v", found)
+	}
+
+	// 5. Triangulación con Go fallback (FTS dropeado): la expansión también funciona en fallback Go.
+	if _, err := s.db.ExecContext(ctx, `DROP TABLE knowledge_fts`); err != nil {
+		t.Fatalf("dropeando knowledge_fts: %v", err)
+	}
+	found, err = s.RecallValidatedKnowledge(ctx, "consultar facturas emitidas", "", 20)
+	if err != nil {
+		t.Fatalf("RecallValidatedKnowledge (fallback Go) error: %v", err)
+	}
+	if len(found) == 0 || found[0].ID != idA {
+		t.Fatalf("fallback en Go también debe encontrar pedidosventa vía alias, got %+v", found)
+	}
+}
