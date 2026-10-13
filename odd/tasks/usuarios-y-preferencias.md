@@ -39,7 +39,7 @@ Documentación y ayuda al día: README, descripciones de las tools nuevas y el p
 
 ## Tasks
 - [x] T1: (S1, S4) [delegated] Migración `0010` con tablas `users` (id, nombre, hash de token, activo, created_at) y `user_preferences` (user_id, JSON completo, migrated_at, updated_at). Riesgo: item 1. Commit: 0f12307.
-- [ ] T2: (S1) [delegated] Middleware que resuelve el usuario por token y lo pone en el contexto; conserva el token estático según A1; comando CLI para crear usuarios según A2. Riesgo: item 2.
+- [x] T2: (S1) [delegated] Middleware que resuelve el usuario por token y lo pone en el contexto; conserva el token estático según A1; comando CLI para crear usuarios según A2. Riesgo: item 2. Commit: ba8292b.
 - [ ] T3: (S2) [delegated] Autor desde el usuario autenticado en `aprender_del_usuario`, `proponer_conocimiento`, `aprobar_conocimiento`, `rechazar_conocimiento`, `revocar_conocimiento` y alias. Riesgo: item 3.
 - [ ] T4: (S3) [delegated] Reproducir el bug con un test que falle (usuario 3 enseña, usuario 2 recuerda). Confirmar o descartar la hipótesis. No decidir la política de visibilidad: devolver el hueco al padre.
 - [ ] T5: (S4, S5) [delegated] Tool `recordando_configuracion`: devuelve las preferencias del usuario autenticado y, si no tiene, indica que falta migrar.
@@ -52,3 +52,4 @@ Documentación y ayuda al día: README, descripciones de las tools nuevas y el p
 - L2 (2026-10-13, usuario): eligió la opción A, un token personal por usuario.
 - L3 (2026-10-13, padre): verificado en el código: un único token estático (`auth.go`), autores escritos por el modelo (`tools_learning.go:232,335`), recall filtra solo por `status = 'validated'` (`recall.go:226,261`).
 - L4 (2026-10-13): T1 completada (0f12307): Migración 0010_users_and_preferences.sql con tablas users y user_preferences. TDD RED/GREEN. Revisión Codex detectó índices redundantes en columnas UNIQUE; Claude eliminó los índices duplicados. Verificado con go test ./...
+- L5 (2026-10-13): T2 completada (ba8292b): WithUserAuth resuelve usuarios por token personal o token estático admin en contexto. CLI user create y user list implementados. Revisión Codex detectó necesidad de despachar CLI sin requerir MySQL, permitir arranque HTTP sin token estático si hay usuarios y distinguir Role; Claude corrigió estos puntos. Verificado con go test ./...
