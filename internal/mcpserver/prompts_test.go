@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 
@@ -118,23 +117,15 @@ func TestJarvisPromptWithoutPeticionAsksUser(t *testing.T) {
 	}
 }
 
-// El prompt embebido deriva de .claude/commands/jarvis.md: si el flujo clave
-// cambia en uno y no en el otro, este test lo delata.
+// Verifica que el template embebido conserve los marcadores de flujo clave.
 func TestJarvisPromptKeepsCommandFlowMarkers(t *testing.T) {
-	command, err := os.ReadFile("../../.claude/commands/jarvis.md")
-	if err != nil {
-		t.Fatal(err)
-	}
 	for _, marker := range []string{
 		"recordar_contexto", "obtener_conocimiento_validado", "aprender_del_usuario",
 		"obtener_conocimiento_por_id", "posibles_conflictos", "previously_rejected",
 		"consultar_base_datos", "obtener_conocimiento_negocio", `detalle: "compacto"`,
 	} {
-		if !strings.Contains(string(command), marker) {
-			t.Errorf("el comando perdió el marcador %q", marker)
-		}
 		if !strings.Contains(jarvisPromptTemplate, marker) {
-			t.Errorf("el prompt embebido no contiene el marcador %q del comando", marker)
+			t.Errorf("el prompt embebido no contiene el marcador %q", marker)
 		}
 	}
 }

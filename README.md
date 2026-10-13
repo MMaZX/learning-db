@@ -37,29 +37,15 @@ donde lo vayas a usar.
 El MCP necesita un usuario dedicado con **únicamente** `SELECT` y
 `SHOW VIEW` sobre la base de datos — nunca uses un usuario con permisos de
 escritura, aunque el validador SQL del MCP (capa `internal/security`) ya
-bloquee cualquier cosa que no sea `SELECT`. Hay un script que lo crea:
+bloquee cualquier cosa que no sea `SELECT`.
 
-```bash
-scripts/create-readonly-user.sh \
-  --admin-user root \
-  --db-database database_multi_final \
-  --db-username sigea_mcp_auditor \
-  --host 127.0.0.1 \
-  --port 3307
-# --db-password es opcional: si lo omites, genera una aleatoria y te la muestra al final
+Ejecuta con un usuario administrador en MySQL:
+
+```sql
+CREATE USER 'sigea_mcp_auditor'@'%' IDENTIFIED BY 'tu_contraseña_segura';
+GRANT SELECT, SHOW VIEW ON `database_multi_final`.* TO 'sigea_mcp_auditor'@'%';
+FLUSH PRIVILEGES;
 ```
-
-Te pide la contraseña del usuario admin (uno que pueda `CREATE USER`/`GRANT`)
-y al terminar imprime las variables `DB_*` listas para copiar a `.env` o a
-la config del cliente MCP. Para ver el SQL exacto sin ejecutarlo, agregá
-`--dry-run`.
-
-Por debajo corre `scripts/create-readonly-user.sql` (podés ejecutarlo a
-mano si preferís no usar el wrapper bash — el propio archivo trae las
-instrucciones). Después de crearlo, verificá los permisos reales — no solo
-lo que crees que otorgaste — corriendo `scripts/delete-sql.sql` conectado
-como ese usuario; ese script intenta cada operación destructiva posible y
-confirma que todas fallan.
 
 ---
 
@@ -419,7 +405,6 @@ internal/mcpserver/   tools MCP + traducción a español (traduccion.go)
 migrations/           esquema SQLite embebido
 knowledge/            documentación funcional + índice
 dist/                 binarios ya compilados (Linux y Windows)
-scripts/               create-readonly-user.{sql,sh}, delete-sql.sql (pentest), restart-mcp.sh
 ```
 
 ## 11. Tests
