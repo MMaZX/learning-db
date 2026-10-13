@@ -123,6 +123,7 @@ func TestJarvisPromptKeepsCommandFlowMarkers(t *testing.T) {
 		"recordar_contexto", "obtener_conocimiento_validado", "aprender_del_usuario",
 		"obtener_conocimiento_por_id", "posibles_conflictos", "previously_rejected",
 		"consultar_base_datos", "obtener_conocimiento_negocio", `detalle: "compacto"`,
+		"recordando_configuracion", "migrar_preferencias", "update_skill",
 	} {
 		if !strings.Contains(jarvisPromptTemplate, marker) {
 			t.Errorf("el prompt embebido no contiene el marcador %q", marker)

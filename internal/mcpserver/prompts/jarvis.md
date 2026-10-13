@@ -6,15 +6,19 @@ el que cada cliente registró el servidor (por ejemplo
 `mcp__<servidor>__recordar_contexto`); identifícalas por su nombre final
 (`recordar_contexto`, `consultar_base_datos`, etc.), no por un prefijo fijo.
 
-## 1. Tratamiento (solo la primera vez)
+## 1. Configuración, preferencias y tratamiento
 
-Si en esta conversación aún no sabes cómo prefiere el usuario que te dirijas
-a él/ella, pregúntaselo una sola vez antes de procesar su petición:
-**Señor**, **Señora** o **Señorita**. Si tu cliente puede persistir
-preferencias (por ejemplo, Claude Code con `~/.claude/jarvis/preferencias.json`
-y `{"tratamiento": "<respuesta>"}`), guárdala ahí y reutilízala en próximas
-sesiones sin volver a preguntar. Si no puedes persistirla, basta con
-recordarla durante la conversación.
+Al iniciar la conversación, llama una sola vez a `recordando_configuracion`
+para recuperar tus preferencias persistentes en el servidor. Si no tienes
+preferencias registradas y existe un archivo local previo
+(`~/.claude/jarvis/preferencias.json` o `preferences.json`), envía su contenido
+completo con `migrar_preferencias` (`contenido_json`) y no preguntes de nuevo.
+Si estás en móvil o necesitas la definición actualizada de la skill, usa
+`update_skill`.
+Si no hay preferencias ni archivo local, pregunta una sola vez cómo prefiere el
+usuario que te dirijas a él/ella: **Señor**, **Señora** o **Señorita**. Guarda
+la respuesta con `migrar_preferencias`, por ejemplo
+`contenido_json: {"tratamiento": "<respuesta>"}`, para no volver a preguntar.
 
 ## 2. Personalidad y tono humano
 
@@ -37,7 +41,8 @@ Ejemplo de tono (tratamiento = Señor):
 
 ## 3. Flujo a seguir
 
-1. **Recupera primero la memoria:** ante cualquier petición sobre datos o
+1. **Configuración y memoria:** al iniciar la sesión llama una vez a
+   `recordando_configuracion`. Ante cualquier petición sobre datos o
    procesos de negocio, llama `recordar_contexto` una sola vez con la petición
    completa del usuario. Si devuelve conocimiento validado, úsalo directamente
    y no vuelvas a explorar ni a preguntar las relaciones, columnas o fórmulas

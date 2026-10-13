@@ -51,10 +51,22 @@ docker compose up -d
 
 ### Modo HTTP
 
-El servidor expone el endpoint `/mcp`. En clientes como Claude Code, Cursor u OpenCode, configura la conexión con la URL y el token:
+El servidor expone el endpoint `/mcp`. En clientes como Claude Code, Cursor u OpenCode, configura la conexión con la URL y tu token (personal de usuario o administrativo estático):
 
 - **URL**: `http://localhost:8080/mcp`
-- **Header**: `Authorization: Bearer <MCP_AUTH_TOKEN>` o `X-API-Key: <MCP_AUTH_TOKEN>`
+- **Header**: `Authorization: Bearer <TOKEN>` o `X-API-Key: <TOKEN>`
+
+### Gestión de usuarios (CLI)
+
+Cada usuario puede disponer de un token personal seguro para registrar su autoría en aprendizajes y persistir sus preferencias de forma individual:
+
+```bash
+# Crear un usuario y obtener su token (se muestra una sola vez)
+./db-intelligence-mcp user create <nombre_usuario>
+
+# Listar usuarios registrados
+./db-intelligence-mcp user list
+```
 
 ### Modo stdio
 
@@ -99,8 +111,13 @@ Para clientes que ejecutan el proceso localmente:
 - `obtener_conocimiento_negocio`: Lee archivos markdown de documentación de negocio.
 - `obtener_entidad` y `obtener_relaciones`: Consulta entidades del modelo y sus vínculos.
 
+### Configuración, preferencias y entrega de skill
+- `recordando_configuracion`: Lee y devuelve las preferencias de comportamiento del usuario autenticado guardadas en el servidor al iniciar la conversación.
+- `migrar_preferencias`: Persiste el contenido completo de `preferences.json` en el servidor para el usuario autenticado de forma idempotente.
+- `update_skill`: Entrega el contenido actualizado de la skill de Jarvis y su identificador de versión (ideal para chats móviles o sin terminal).
+
 ### Aprendizaje y memoria
-- `aprender_del_usuario`: Guarda aclaraciones o reglas explicadas por el usuario.
+- `aprender_del_usuario`: Guarda aclaraciones o reglas explicadas por el usuario autenticado.
 - `registrar_observacion`: Guarda notas sobre comportamientos o particularidades detectadas.
 - `proponer_conocimiento`: Registra propuestas de reglas para posterior revisión.
 - `obtener_conocimiento_pendiente`: Lista propuestas sin validar.
