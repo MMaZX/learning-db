@@ -299,6 +299,44 @@ func TestRelationsFor_BatchWithLiveStatus(t *testing.T) {
 	}
 }
 
+func TestDetectKnowledgeRelations_FlagsRevokedAsPreviouslyRejected(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	// Creamos un conocimiento validado y luego lo revocamos
+	v1, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "regla_descuento", Context: "ventas", Claim: "descuento fijo 15%", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApproveKnowledge(ctx, v1, "admin", "aprobado"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.RevokeKnowledge(ctx, v1, "gerente", "politica cancelada por perdidas"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Al proponer una nueva regla con el mismo topic_key, debe alertar RelationPreviouslyRejected
+	prop, err := s.ProposeKnowledge(ctx, Knowledge{Subject: "regla_descuento", Context: "ventas", Claim: "reintentar descuento 15%", Version: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rels, err := s.DetectKnowledgeRelations(ctx, prop)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range rels {
+		if r.ToID == v1 && r.Relation == RelationPreviouslyRejected {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("se esperaba relacion 'previously_rejected' hacia el conocimiento revocado %d, rels: %+v", v1, rels)
+	}
+}
+
 func TestMigration0007_AppliesOnExistingDB(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

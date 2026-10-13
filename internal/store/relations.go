@@ -59,7 +59,7 @@ func (s *Store) DetectKnowledgeRelations(ctx context.Context, id int64) ([]Knowl
 	if k.TopicKey != "" {
 		rows, err := s.db.QueryContext(ctx, `
 			SELECT id, status FROM knowledge
-			WHERE topic_key = ? AND id <> ? AND status IN ('validated','proposed','rejected')
+			WHERE topic_key = ? AND id <> ? AND status IN ('validated','proposed','rejected','revoked')
 			ORDER BY id`, k.TopicKey, id)
 		if err != nil {
 			return nil, err
@@ -79,7 +79,7 @@ func (s *Store) DetectKnowledgeRelations(ctx context.Context, id int64) ([]Knowl
 				}
 			case KnowledgeStatusProposed:
 				add(other, RelationSameTopic, nil)
-			case KnowledgeStatusRejected:
+			case KnowledgeStatusRejected, KnowledgeStatusRevoked:
 				add(other, RelationPreviouslyRejected, nil)
 			}
 		}
@@ -114,7 +114,7 @@ func (s *Store) relationsViaFTS(ctx context.Context, k *Knowledge, ftsQuery stri
 		WHERE knowledge_fts MATCH ?
 		  AND knowledge.id <> ?
 		  AND IFNULL(knowledge.topic_key,'') <> ?
-		  AND knowledge.status IN ('validated','proposed','rejected')
+		  AND knowledge.status IN ('validated','proposed','rejected','revoked')
 		ORDER BY bm25(knowledge_fts, 2.0, 1.0, 3.0)
 		LIMIT ?`, ftsQuery, k.ID, k.TopicKey, relationFTSCandidates)
 	if err != nil {
@@ -139,7 +139,7 @@ func (s *Store) relationsViaFTS(ctx context.Context, k *Knowledge, ftsQuery stri
 			break
 		}
 		relation := RelationPossibleConflict
-		if status == KnowledgeStatusRejected {
+		if status == KnowledgeStatusRejected || status == KnowledgeStatusRevoked {
 			relation = RelationPreviouslyRejected
 		}
 		sc := score
