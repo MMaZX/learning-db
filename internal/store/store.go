@@ -92,21 +92,59 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("leyendo migración %s: %w", name, err)
 		}
-		tx, err := s.db.BeginTx(ctx, nil)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.ExecContext(ctx, string(content)); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("aplicando migración %s: %w", name, err)
-		}
-		if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
-			tx.Rollback()
-			return err
-		}
-		if err := tx.Commit(); err != nil {
+		if err := s.applyMigration(ctx, name, string(content)); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// applyMigration aplica una migración en su propia transacción con las foreign
+// keys desactivadas. Las migraciones que reconstruyen una tabla (CREATE
+// nueva, copiar, DROP, RENAME) ejecutan un DELETE implícito en el DROP que
+// falla con FOREIGN KEY (787) si otras filas la referencian. PRAGMA
+// foreign_keys es por conexión y no tiene efecto dentro de una transacción,
+// por eso se fija antes del BEGIN y se restaura al terminar. Antes del commit
+// se verifica la integridad referencial completa: si queda alguna violación,
+// se hace rollback y la migración no se registra.
+func (s *Store) applyMigration(ctx context.Context, name, content string) (err error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("obteniendo conexión para migración %s: %w", name, err)
+	}
+	defer conn.Close()
+
+	if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys = OFF`); err != nil {
+		return fmt.Errorf("desactivando foreign keys para %s: %w", name, err)
+	}
+	defer func() {
+		if _, rerr := conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA foreign_keys = ON`); rerr != nil && err == nil {
+			err = fmt.Errorf("reactivando foreign keys tras %s: %w", name, rerr)
+		}
+	}()
+
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, content); err != nil {
+		tx.Rollback()
+		return fmt.Errorf("aplicando migración %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO schema_migrations(version) VALUES (?)`, name); err != nil {
+		tx.Rollback()
+		return err
+	}
+	rows, err := tx.QueryContext(ctx, `PRAGMA foreign_key_check`)
+	if err != nil {
+		tx.Rollback()
+		return fmt.Errorf("verificando foreign keys tras %s: %w", name, err)
+	}
+	violations := rows.Next()
+	rows.Close()
+	if violations {
+		tx.Rollback()
+		return fmt.Errorf("la migración %s dejaría violaciones de foreign key; se revirtió sin aplicar", name)
+	}
+	return tx.Commit()
 }
