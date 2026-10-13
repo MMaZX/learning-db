@@ -1,10 +1,22 @@
 package mcpserver
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/fulanito/db-intelligence-mcp/internal/store"
 )
+
+type mockUserStore struct {
+	users map[string]*store.User
+}
+
+func (m *mockUserStore) GetUserByTokenHash(ctx context.Context, hash string) (*store.User, error) {
+	return m.users[hash], nil
+}
 
 func TestWithBearerAuth(t *testing.T) {
 	const token = "secreto-123"
@@ -56,4 +68,123 @@ func TestWithBearerAuth_EmptyServerTokenNeverAuthorizes(t *testing.T) {
 			t.Fatalf("token vacío no debe autorizar: %v -> %d", hdr, rec.Code)
 		}
 	}
+}
+
+func TestWithUserAuth(t *testing.T) {
+	const staticAdminToken = "admin-static-token"
+	const userToken = "user-alice-token"
+	userHash := store.HashToken(userToken)
+
+	const inactiveToken = "user-bob-inactive-token"
+	inactiveHash := store.HashToken(inactiveToken)
+
+	mockStore := &mockUserStore{
+		users: map[string]*store.User{
+			userHash: {
+				ID:        1,
+				Username:  "alice",
+				TokenHash: userHash,
+				IsActive:  true,
+				CreatedAt: time.Now(),
+			},
+			inactiveHash: {
+				ID:        2,
+				Username:  "bob",
+				TokenHash: inactiveHash,
+				IsActive:  false,
+				CreatedAt: time.Now(),
+			},
+		},
+	}
+
+	var capturedUser *store.User
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		u, ok := UserFromContext(r.Context())
+		if ok {
+			capturedUser = u
+		}
+		w.WriteHeader(http.StatusOK)
+	})
+
+	h := WithUserAuth(mockStore, staticAdminToken, handler)
+
+	t.Run("token personal valido en Bearer", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+userToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusOK)
+		}
+		if capturedUser == nil || capturedUser.Username != "alice" {
+			t.Fatalf("usuario en contexto inesperado: %+v", capturedUser)
+		}
+	})
+
+	t.Run("token personal valido en X-API-Key", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("X-API-Key", userToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusOK)
+		}
+		if capturedUser == nil || capturedUser.Username != "alice" {
+			t.Fatalf("usuario en contexto inesperado: %+v", capturedUser)
+		}
+	})
+
+	t.Run("token estatico conserva rol admin (A1)", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+staticAdminToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusOK)
+		}
+		if capturedUser == nil || capturedUser.Username != "admin" {
+			t.Fatalf("usuario admin esperado, obtenido: %+v", capturedUser)
+		}
+	})
+
+	t.Run("usuario inactivo rechazado", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer "+inactiveToken)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("token desconocido rechazado", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		req.Header.Set("Authorization", "Bearer token-desconocido")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
+
+	t.Run("sin token rechazado", func(t *testing.T) {
+		capturedUser = nil
+		req := httptest.NewRequest(http.MethodPost, "/mcp", nil)
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+
+		if rec.Code != http.StatusUnauthorized {
+			t.Fatalf("status=%d, quería %d", rec.Code, http.StatusUnauthorized)
+		}
+	})
 }

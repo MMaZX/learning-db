@@ -33,6 +33,13 @@ func main() {
 }
 
 func run() error {
+	// La CLI de usuarios solo necesita el data path: se despacha antes de
+	// validar la configuración completa para no exigir credenciales de MySQL.
+	cliCfg := &config.Config{DataPath: config.DataPathFromEnv()}
+	if handled, err := handleCLI(cliCfg, os.Args[1:]); handled {
+		return err
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("cargando configuración: %w", err)
@@ -92,18 +99,122 @@ func run() error {
 	})
 
 	if cfg.MCPTransport == "http" {
-		return serveHTTP(ctx, cfg, mcpServer, logger)
+		if cfg.MCPAuthToken == "" {
+			users, err := metaStore.ListUsers(ctx)
+			if err != nil {
+				return fmt.Errorf("listando usuarios: %w", err)
+			}
+			if len(users) == 0 {
+				return errors.New("transporte http sin MCP_AUTH_TOKEN requiere al menos un usuario (ejecuta 'user create <name>')")
+			}
+		}
+		return serveHTTP(ctx, cfg, mcpServer, metaStore, logger)
 	}
 
 	logger.Info("MCP listo, sirviendo por stdio", "server", cfg.ServerName)
 	return server.ServeStdio(mcpServer)
 }
 
+func handleCLI(cfg *config.Config, args []string) (bool, error) {
+	if len(args) == 0 {
+		return false, nil
+	}
+
+	switch args[0] {
+	case "create-user":
+		if len(args) < 2 {
+			return true, fmt.Errorf("uso: %s create-user <username>", os.Args[0])
+		}
+		return true, createUserCmd(cfg, args[1])
+
+	case "user":
+		if len(args) < 2 {
+			return true, fmt.Errorf("uso: %s user <create|list> [args]", os.Args[0])
+		}
+		switch args[1] {
+		case "create":
+			if len(args) < 3 {
+				return true, fmt.Errorf("uso: %s user create <username>", os.Args[0])
+			}
+			return true, createUserCmd(cfg, args[2])
+		case "list":
+			return true, listUsersCmd(cfg)
+		default:
+			return true, fmt.Errorf("subcomando desconocido: user %s", args[1])
+		}
+
+	case "list-users":
+		return true, listUsersCmd(cfg)
+
+	case "help", "-help", "--help", "-h":
+		fmt.Printf(`Uso:
+  %s                     Arranca el servidor MCP
+  %s user create <name>  Crea un nuevo usuario con token personal (A2)
+  %s user list           Lista los usuarios registrados
+`, os.Args[0], os.Args[0], os.Args[0])
+		return true, nil
+
+	default:
+		return false, nil
+	}
+}
+
+func createUserCmd(cfg *config.Config, username string) error {
+	ctx := context.Background()
+	metaStore, err := store.Open(ctx, cfg.DataPath)
+	if err != nil {
+		return fmt.Errorf("abriendo metadata store: %w", err)
+	}
+	defer metaStore.Close()
+
+	token, err := store.GenerateToken()
+	if err != nil {
+		return fmt.Errorf("generando token: %w", err)
+	}
+	hash := store.HashToken(token)
+
+	u, err := metaStore.CreateUser(ctx, username, hash)
+	if err != nil {
+		return fmt.Errorf("creando usuario: %w", err)
+	}
+
+	fmt.Printf("Usuario creado correctamente:\n")
+	fmt.Printf("  ID:       %d\n", u.ID)
+	fmt.Printf("  Usuario:  %s\n", u.Username)
+	fmt.Printf("  Token:    %s\n\n", token)
+	fmt.Println("IMPORTANTE: Guarde este token ahora. Por seguridad, no se volverá a mostrar.")
+	return nil
+}
+
+func listUsersCmd(cfg *config.Config) error {
+	ctx := context.Background()
+	metaStore, err := store.Open(ctx, cfg.DataPath)
+	if err != nil {
+		return fmt.Errorf("abriendo metadata store: %w", err)
+	}
+	defer metaStore.Close()
+
+	users, err := metaStore.ListUsers(ctx)
+	if err != nil {
+		return fmt.Errorf("listando usuarios: %w", err)
+	}
+
+	if len(users) == 0 {
+		fmt.Println("No hay usuarios registrados.")
+		return nil
+	}
+
+	fmt.Printf("%-5s %-20s %-8s %s\n", "ID", "USUARIO", "ACTIVO", "CREADO")
+	for _, u := range users {
+		fmt.Printf("%-5d %-20s %-8v %s\n", u.ID, u.Username, u.IsActive, u.CreatedAt.Format(time.RFC3339))
+	}
+	return nil
+}
+
 // serveHTTP sirve el MCP por Streamable HTTP, permitiendo múltiples sesiones
 // concurrentes (una por cliente, gestionadas internamente por mcp-go vía
-// SessionID). Requiere MCP_AUTH_TOKEN: sin él, config.Load ya rechaza el
-// arranque en modo http, así que aquí siempre hay token que exigir.
-func serveHTTP(ctx context.Context, cfg *config.Config, mcpServer *server.MCPServer, logger *slog.Logger) error {
+// SessionID). Requiere autenticación por token (personal o estático de transición).
+func serveHTTP(ctx context.Context, cfg *config.Config, mcpServer *server.MCPServer, metaStore *store.Store, logger *slog.Logger) error {
 	streamableSrv := server.NewStreamableHTTPServer(
 		mcpServer,
 		server.WithEndpointPath("/mcp"),
@@ -113,7 +224,7 @@ func serveHTTP(ctx context.Context, cfg *config.Config, mcpServer *server.MCPSer
 	)
 
 	mux := http.NewServeMux()
-	mux.Handle("/mcp", mcpserver.WithBearerAuth(cfg.MCPAuthToken, streamableSrv))
+	mux.Handle("/mcp", mcpserver.WithUserAuth(metaStore, cfg.MCPAuthToken, streamableSrv))
 
 	httpServer := &http.Server{
 		Addr:    cfg.MCPHTTPAddr,

@@ -44,6 +44,13 @@ type Config struct {
 	PassiveCapture bool
 }
 
+// DataPathFromEnv devuelve MCP_DATA_PATH (o el valor por defecto) sin validar
+// el resto de la configuración. Lo usa la CLI de usuarios, que no necesita MySQL.
+func DataPathFromEnv() string {
+	_ = godotenv.Load()
+	return getEnv("MCP_DATA_PATH", "./data")
+}
+
 // Load lee un archivo .env (si existe) y construye la configuración.
 // No falla si el .env no existe: en producción las variables pueden venir del entorno.
 func Load() (*Config, error) {
@@ -104,9 +111,8 @@ func Load() (*Config, error) {
 	case "stdio":
 		// ok
 	case "http":
-		if cfg.MCPAuthToken == "" {
-			return nil, fmt.Errorf("MCP_AUTH_TOKEN es obligatorio cuando MCP_TRANSPORT=http")
-		}
+		// MCP_AUTH_TOKEN es opcional: sin él solo se aceptan tokens personales.
+		// El arranque verifica que exista al menos un usuario (ver cmd/server).
 	default:
 		return nil, fmt.Errorf("MCP_TRANSPORT inválido (%q): debe ser \"stdio\" o \"http\"", cfg.MCPTransport)
 	}

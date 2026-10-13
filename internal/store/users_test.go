@@ -58,3 +58,81 @@ func TestMigration0010_UsersAndPreferences(t *testing.T) {
 		t.Fatalf("se esperaba error de foreign key en user_preferences")
 	}
 }
+
+func TestStore_CreateAndGetUser(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+
+	token := "mi-token-secreto"
+	hash := HashToken(token)
+
+	u, err := s.CreateUser(ctx, "persona 2", hash)
+	if err != nil {
+		t.Fatalf("falló CreateUser: %v", err)
+	}
+	if u.ID <= 0 || u.Username != "persona 2" || !u.IsActive {
+		t.Fatalf("usuario retornado inválido: %+v", u)
+	}
+
+	// Recuperar por hash
+	byHash, err := s.GetUserByTokenHash(ctx, hash)
+	if err != nil {
+		t.Fatalf("falló GetUserByTokenHash: %v", err)
+	}
+	if byHash.ID != u.ID || byHash.Username != "persona 2" {
+		t.Fatalf("usuario no coincide: %+v", byHash)
+	}
+
+	// Recuperar por username
+	byName, err := s.GetUserByUsername(ctx, "persona 2")
+	if err != nil {
+		t.Fatalf("falló GetUserByUsername: %v", err)
+	}
+	if byName.ID != u.ID {
+		t.Fatalf("usuario por nombre no coincide: %+v", byName)
+	}
+
+	// Hash inexistente
+	notFound, err := s.GetUserByTokenHash(ctx, HashToken("inexistente"))
+	if err != nil {
+		t.Fatalf("error buscando token inexistente: %v", err)
+	}
+	if notFound != nil {
+		t.Fatalf("esperaba nil para token inexistente, obtuve: %+v", notFound)
+	}
+
+	// Listar usuarios
+	users, err := s.ListUsers(ctx)
+	if err != nil {
+		t.Fatalf("falló ListUsers: %v", err)
+	}
+	if len(users) != 1 || users[0].Username != "persona 2" {
+		t.Fatalf("lista de usuarios inesperada: %+v", users)
+	}
+}
+
+func TestGenerateAndHashToken(t *testing.T) {
+	tok1, err := GenerateToken()
+	if err != nil {
+		t.Fatalf("falló GenerateToken: %v", err)
+	}
+	tok2, err := GenerateToken()
+	if err != nil {
+		t.Fatalf("falló GenerateToken: %v", err)
+	}
+	if tok1 == tok2 {
+		t.Fatalf("tokens generados deben ser únicos")
+	}
+	if len(tok1) < 32 {
+		t.Fatalf("longitud de token insuficiente: %d", len(tok1))
+	}
+
+	h1 := HashToken(tok1)
+	h2 := HashToken(tok1)
+	if h1 != h2 {
+		t.Fatalf("HashToken debe ser determinista")
+	}
+	if h1 == tok1 {
+		t.Fatalf("hash no debe ser el token en claro")
+	}
+}
