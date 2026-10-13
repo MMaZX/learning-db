@@ -187,6 +187,34 @@ func registerLearningTools(s *server.MCPServer, deps *Deps) {
 	)
 
 	s.AddTool(
+		mcp.NewTool("revocar_conocimiento",
+			mcp.WithDescription("Revoca formalmente un conocimiento que ya estaba validado (estado 'validado' -> 'revocado'). Exige motivo obligatorio. Invalida su inyección en recall de inmediato y libera el topic_key para futuras reglas válidas, preservando el registro como conocimiento negativo para alertar posibles conflictos."),
+			mcp.WithNumber("id", mcp.Required(), mcp.Description("ID del conocimiento validado a revocar")),
+			mcp.WithString("revocado_por", mcp.Required(), mcp.Description("Quién revoca (usuario/administrador)")),
+			mcp.WithString("motivo", mcp.Required(), mcp.Description("Motivo obligatorio de la revocación")),
+		),
+		mcp.NewTypedToolHandler(func(ctx context.Context, req mcp.CallToolRequest, args struct {
+			ID          int64  `json:"id"`
+			RevocadoPor string `json:"revocado_por"`
+			Motivo      string `json:"motivo"`
+		}) (*mcp.CallToolResult, error) {
+			if strings.TrimSpace(args.Motivo) == "" {
+				return toolError(errors.New("el motivo de revocación es obligatorio"))
+			}
+			k, err := deps.Store.RevokeKnowledge(ctx, args.ID, args.RevocadoPor, args.Motivo)
+			if err != nil {
+				return toolError(err)
+			}
+			recordAudit(ctx, deps, "revocar_conocimiento", "conocimiento_revocado", mustJSON(map[string]any{"id": args.ID, "por": args.RevocadoPor, "motivo": args.Motivo}), "")
+			aliases, err := aliasMap(ctx, deps)
+			if err != nil {
+				return toolError(err)
+			}
+			return toJSONResult(conocimientoAJSON(*k, aliases))
+		}),
+	)
+
+	s.AddTool(
 		mcp.NewTool("aprender_del_usuario",
 			mcp.WithDescription(
 				"Registra una enseñanza EXPLÍCITA de un humano sobre de dónde sale un concepto de negocio (ej. 'el vendedor se obtiene de pedidosventa.codUsuario -> usuario.codUsuario'). "+

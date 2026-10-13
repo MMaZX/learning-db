@@ -162,7 +162,7 @@ func TestRecordarContextoDescribedAsSingleRecallEntrypoint(t *testing.T) {
 	}
 
 	// T2 no quita ni renombra tools existentes: solo aclara prioridad.
-	const expectedToolCount = 21
+	const expectedToolCount = 22
 	if len(tools.Tools) != expectedToolCount {
 		t.Fatalf("se esperaban %d tools registradas, hay %d: %v", expectedToolCount, len(tools.Tools), toolNames(tools.Tools))
 	}
@@ -343,5 +343,81 @@ func TestRecordarContextoAcceptance(t *testing.T) {
 	}
 	if recallCalls != 3 || otherCalls != 0 {
 		t.Fatalf("3 consultas deben costar 3 llamadas a recordar_contexto y 0 follow-ups: recordar=%d otras=%d", recallCalls, otherCalls)
+	}
+}
+
+func TestServerToolRevocarConocimiento(t *testing.T) {
+	ctx := context.Background()
+	metadata, err := store.Open(ctx, t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = metadata.Close() })
+
+	id, err := metadata.ProposeKnowledge(ctx, store.Knowledge{
+		Subject: "politica", Context: "precios",
+		Claim: "margen minimo 20%", Version: 1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := metadata.ApproveKnowledge(ctx, id, "admin", "aprobado"); err != nil {
+		t.Fatal(err)
+	}
+
+	mcpServer := New(&Deps{
+		Store:     metadata,
+		Knowledge: knowledge.NewStore(t.TempDir()),
+	})
+	mcpClient, err := client.NewInProcessClient(mcpServer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = mcpClient.Close() })
+	if err := mcpClient.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	initRequest := mcp.InitializeRequest{}
+	initRequest.Params.ProtocolVersion = mcp.LATEST_PROTOCOL_VERSION
+	initRequest.Params.ClientInfo = mcp.Implementation{Name: "test", Version: "1"}
+	if _, err := mcpClient.Initialize(ctx, initRequest); err != nil {
+		t.Fatal(err)
+	}
+
+	// Llamada a la tool revocar_conocimiento
+	callReq := mcp.CallToolRequest{}
+	callReq.Params.Name = "revocar_conocimiento"
+	callReq.Params.Arguments = map[string]any{
+		"id":           id,
+		"revocado_por": "gerente",
+		"motivo":       "margen desactualizado",
+	}
+	res, err := mcpClient.CallTool(ctx, callReq)
+	if err != nil || res.IsError || len(res.Content) == 0 {
+		t.Fatalf("revocar_conocimiento fallo: %v res: %+v", err, res)
+	}
+	text := res.Content[0].(mcp.TextContent).Text
+	if !strings.Contains(text, `"estado":"revocado"`) {
+		t.Fatalf("estado esperado 'revocado', got: %s", text)
+	}
+
+	// Triangulación 1: motivo vacío debe retornar error
+	badReq := mcp.CallToolRequest{}
+	badReq.Params.Name = "revocar_conocimiento"
+	badReq.Params.Arguments = map[string]any{
+		"id":           id,
+		"revocado_por": "gerente",
+		"motivo":       "   ",
+	}
+	resBad, err := mcpClient.CallTool(ctx, badReq)
+	if err != nil || !resBad.IsError {
+		t.Fatalf("revocar con motivo vacio debio retornar error, got: %+v err: %v", resBad, err)
+	}
+
+	// Triangulación 2: revocar un registro ya revocado debe fallar
+	resAgain, err := mcpClient.CallTool(ctx, callReq)
+	if err != nil || !resAgain.IsError {
+		t.Fatalf("revocar un registro ya revocado debio retornar error, got: %+v err: %v", resAgain, err)
 	}
 }

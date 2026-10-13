@@ -85,7 +85,7 @@ func TestJarvisPromptListedWithPeticionArgument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(tools.Tools) != 21 {
+	if len(tools.Tools) != 22 {
 		t.Fatalf("los prompts no deben alterar las tools: %d", len(tools.Tools))
 	}
 }

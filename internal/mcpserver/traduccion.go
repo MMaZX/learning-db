@@ -20,6 +20,7 @@ var estadoConocimientoAEspanol = map[string]string{
 	store.KnowledgeStatusValidated:  "validado",
 	store.KnowledgeStatusRejected:   "rechazado",
 	store.KnowledgeStatusDeprecated: "obsoleto",
+	store.KnowledgeStatusRevoked:    "revocado",
 }
 
 // conocimientoAJSON traduce el modelo interno a la superficie MCP. aliases
