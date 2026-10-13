@@ -54,6 +54,7 @@ func New(deps *Deps) *server.MCPServer {
 	registerQueryTools(s, deps)
 	registerKnowledgeTools(s, deps)
 	registerLearningTools(s, deps)
+	registerPreferencesTools(s, deps)
 	registerTelemetryTools(s, deps)
 	registerPrompts(s)
 
