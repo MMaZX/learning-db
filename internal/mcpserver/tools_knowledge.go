@@ -6,15 +6,39 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
+
+	"github.com/fulanito/db-intelligence-mcp/internal/store"
 )
 
 // maxIDsPorConsulta acota obtener_conocimiento_por_id.
 const maxIDsPorConsulta = 20
 
+// agregarPendientes añade a la respuesta de recordar_contexto el aviso de
+// enseñanzas relevantes aún sin validar: solo conteo y títulos (id, concepto,
+// contexto, autor). Nunca la afirmación, para que no se use como hecho.
+func agregarPendientes(out map[string]any, pendientes []store.Knowledge) {
+	if len(pendientes) == 0 {
+		return
+	}
+	items := make([]map[string]any, 0, len(pendientes))
+	for _, k := range pendientes {
+		item := map[string]any{"id": k.ID, "concepto": k.Subject, "contexto": k.Context}
+		if k.TaughtBy != "" {
+			item["ensenado_por"] = k.TaughtBy
+		}
+		items = append(items, item)
+	}
+	out["pendientes_de_validar"] = map[string]any{
+		"conteo": len(items),
+		"items":  items,
+		"aviso":  "Hay enseñanzas relevantes que un humano aún no ha validado. NO son hechos confiables: no las uses para escribir SQL. Menciónaselas al usuario y sugiérele que las revise con aprobar_conocimiento o rechazar_conocimiento.",
+	}
+}
+
 func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 	s.AddTool(
 		mcp.NewTool("recordar_contexto",
-			mcp.WithDescription("ÚNICA y PRIMERA tool que debes llamar para recuperar memoria de negocio al comenzar una sesión o tarea nueva, antes de explorar el schema o escribir SQL. Pásale la petición completa del usuario tal cual (parámetro 'tarea'), no un resumen ni una sola palabra clave: la búsqueda tolera variaciones de redacción. Resuelve el recuerdo en una sola llamada, incluida la fuente (tablas/columnas/relación/fórmula) y el alias legible de cada dato, así que no necesitas una segunda llamada a buscar_conocimiento ni a obtener_conocimiento_validado para recordar contexto: esas dos tools sirven para otra cosa (auditoría amplia y verificación puntual antes de un SQL concreto), no para el recuerdo de sesión. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido. Parámetro opcional 'detalle': 'completo' (por defecto) devuelve cada recuerdo entero; 'compacto' devuelve solo id, concepto, contexto, una vista previa de la afirmación, las tablas y la versión (mucho más barato cuando hay muchos recuerdos) y luego pides el detalle de los que necesites con obtener_conocimiento_por_id."),
+			mcp.WithDescription("ÚNICA y PRIMERA tool que debes llamar para recuperar memoria de negocio al comenzar una sesión o tarea nueva, antes de explorar el schema o escribir SQL. Pásale la petición completa del usuario tal cual (parámetro 'tarea'), no un resumen ni una sola palabra clave: la búsqueda tolera variaciones de redacción. Resuelve el recuerdo en una sola llamada, incluida la fuente (tablas/columnas/relación/fórmula) y el alias legible de cada dato, así que no necesitas una segunda llamada a buscar_conocimiento ni a obtener_conocimiento_validado para recordar contexto: esas dos tools sirven para otra cosa (auditoría amplia y verificación puntual antes de un SQL concreto), no para el recuerdo de sesión. Si devuelve resultados, reutiliza directamente sus fuentes, relaciones y fórmulas y evita redescubrir el schema o volver a preguntar lo ya aprendido. Parámetro opcional 'detalle': 'completo' (por defecto) devuelve cada recuerdo entero; 'compacto' devuelve solo id, concepto, contexto, una vista previa de la afirmación, las tablas y la versión (mucho más barato cuando hay muchos recuerdos) y luego pides el detalle de los que necesites con obtener_conocimiento_por_id. Si existen enseñanzas relevantes aún sin validar, la respuesta incluye 'pendientes_de_validar' (conteo, id, concepto, contexto y quién las enseñó, sin la afirmación): no son hechos confiables, solo menciónaselas al usuario."),
 			mcp.WithString("tarea", mcp.Required(), mcp.Description("Petición completa del usuario, en lenguaje natural")),
 			mcp.WithString("contexto", mcp.Description("Área de negocio si se conoce, ej. 'ventas' o 'movimientos de stock'")),
 			mcp.WithNumber("limite", mcp.Description("Máximo de recuerdos validados a devolver"), mcp.DefaultNumber(20)),
@@ -40,25 +64,35 @@ func registerKnowledgeTools(s *server.MCPServer, deps *Deps) {
 			if err != nil {
 				return toolError(err)
 			}
+			pendientes, err := deps.Store.RecallPendingKnowledge(ctx, args.Tarea, args.Contexto, args.Limite)
+			if err != nil {
+				return toolError(err)
+			}
 			if len(found) == 0 {
-				return toJSONResult(map[string]any{
+				out := map[string]any{
 					"memoria_encontrada": false,
 					"nota":               "No encontré memoria validada relevante. No asumas ni inventes tablas/columnas: pregúntale al usuario cómo se obtiene el dato y regístralo con aprender_del_usuario. Explora solo el schema necesario antes de asumir reglas de negocio.",
-				})
+				}
+				agregarPendientes(out, pendientes)
+				return toJSONResult(out)
 			}
 			if args.Detalle == "compacto" {
-				return toJSONResult(map[string]any{
+				out := map[string]any{
 					"memoria_encontrada":    true,
 					"conocimiento_validado": conocimientosCompactosAJSON(found, aliases),
 					"siguiente_paso":        "Esto es una vista compacta. Llama a obtener_conocimiento_por_id con los ids que necesites para ver la fuente completa (columnas, relación, fórmula) y los alias antes de escribir SQL; no hace falta pedir los que no te sirvan.",
 					"instruccion":           "Aplica esta memoria directamente. No redescubras estas relaciones ni vuelvas a preguntarlas; explora únicamente lo que falte para completar la tarea.",
-				})
+				}
+				agregarPendientes(out, pendientes)
+				return toJSONResult(out)
 			}
-			return toJSONResult(map[string]any{
+			out := map[string]any{
 				"memoria_encontrada":    true,
 				"conocimiento_validado": conocimientosAJSON(found, aliases),
 				"instruccion":           "Aplica esta memoria directamente. No redescubras estas relaciones ni vuelvas a preguntarlas; explora únicamente lo que falte para completar la tarea.",
-			})
+			}
+			agregarPendientes(out, pendientes)
+			return toJSONResult(out)
 		}),
 	)
 

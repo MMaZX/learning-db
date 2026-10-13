@@ -46,6 +46,17 @@ const knowledgeColumnsQualified = `knowledge.id, knowledge.subject, IFNULL(knowl
 // (índice ausente/corrupto) o no devuelve resultados, cae al scoring en Go
 // original sobre LIKE/contains, que sigue funcionando igual que antes.
 func (s *Store) RecallValidatedKnowledge(ctx context.Context, task, contextHint string, limit int) ([]Knowledge, error) {
+	return s.recallByStatus(ctx, KnowledgeStatusValidated, task, contextHint, limit)
+}
+
+// RecallPendingKnowledge usa la misma relevancia que RecallValidatedKnowledge
+// pero sobre conocimiento aún 'proposed'. Solo sirve para avisar que hay
+// enseñanzas por validar: nunca debe tratarse como memoria confiable.
+func (s *Store) RecallPendingKnowledge(ctx context.Context, task, contextHint string, limit int) ([]Knowledge, error) {
+	return s.recallByStatus(ctx, KnowledgeStatusProposed, task, contextHint, limit)
+}
+
+func (s *Store) recallByStatus(ctx context.Context, status, task, contextHint string, limit int) ([]Knowledge, error) {
 	if limit <= 0 {
 		limit = 20
 	}
@@ -66,7 +77,7 @@ func (s *Store) RecallValidatedKnowledge(ctx context.Context, task, contextHint 
 	}
 
 	if ftsQuery := buildFTSQueryFromTerms(terms); ftsQuery != "" {
-		out, err := s.recallViaFTS(ctx, ftsQuery, query, normalizedContext, terms, limit)
+		out, err := s.recallViaFTS(ctx, status, ftsQuery, query, normalizedContext, terms, limit)
 		if err == nil && len(out) > 0 {
 			return out, nil
 		}
@@ -76,7 +87,7 @@ func (s *Store) RecallValidatedKnowledge(ctx context.Context, task, contextHint 
 		// resolvería.
 	}
 
-	return s.recallViaGoScoring(ctx, query, normalizedContext, terms, limit)
+	return s.recallViaGoScoring(ctx, status, query, normalizedContext, terms, limit)
 }
 
 // buildFTSQuery convierte texto libre del usuario en una expresión MATCH de
@@ -213,18 +224,18 @@ func expandTermsWithAliases(query string, terms []string, aliases []EntityAlias)
 }
 
 // recallViaFTS busca candidatos usando el índice knowledge_fts, filtrando a
-// status='validated' en el JOIN (el índice FTS no conoce status). El score
+// el status pedido en el JOIN (el índice FTS no conoce status). El score
 // final combina el mismo scoreRecallCandidate usado por el fallback en Go
 // (para preservar "context exacto > subject > términos") con bm25() como
 // desempate adicional: bm25 es más negativo cuanto mejor es la coincidencia,
 // así que se invierte el signo antes de sumarlo.
-func (s *Store) recallViaFTS(ctx context.Context, ftsQuery, query, normalizedContext string, terms []string, limit int) ([]Knowledge, error) {
+func (s *Store) recallViaFTS(ctx context.Context, status, ftsQuery, query, normalizedContext string, terms []string, limit int) ([]Knowledge, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+knowledgeColumnsQualified+`, bm25(knowledge_fts, 2.0, 1.0, 3.0)
 		FROM knowledge_fts
 		JOIN knowledge ON knowledge.id = knowledge_fts.rowid
-		WHERE knowledge_fts MATCH ? AND knowledge.status = 'validated'
-		LIMIT ?`, ftsQuery, maxRecallCandidates)
+		WHERE knowledge_fts MATCH ? AND knowledge.status = ?
+		LIMIT ?`, ftsQuery, status, maxRecallCandidates)
 	if err != nil {
 		return nil, err
 	}
@@ -254,13 +265,13 @@ func (s *Store) recallViaFTS(ctx context.Context, ftsQuery, query, normalizedCon
 // recallViaGoScoring es el scoring original: escanea hasta
 // maxRecallCandidates filas validadas y puntúa cada una en Go. Se mantiene
 // como fallback cuando FTS falla o no encuentra nada.
-func (s *Store) recallViaGoScoring(ctx context.Context, query, normalizedContext string, terms []string, limit int) ([]Knowledge, error) {
+func (s *Store) recallViaGoScoring(ctx context.Context, status, query, normalizedContext string, terms []string, limit int) ([]Knowledge, error) {
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT `+knowledgeColumns+`
 		FROM knowledge
-		WHERE status = 'validated'
+		WHERE status = ?
 		ORDER BY id DESC
-		LIMIT ?`, maxRecallCandidates)
+		LIMIT ?`, status, maxRecallCandidates)
 	if err != nil {
 		return nil, err
 	}

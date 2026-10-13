@@ -104,7 +104,7 @@ Para clientes que ejecutan el proceso localmente:
 - `explicar_consulta`: Ejecuta `EXPLAIN` sobre una consulta para analizar el plan de ejecución.
 
 ### Contexto y conocimiento
-- `recordar_contexto`: Recupera conocimiento validado relevante para la consulta actual.
+- `recordar_contexto`: Recupera conocimiento validado relevante para la consulta actual. Si hay enseñanzas relevantes aún sin validar, las avisa en `pendientes_de_validar` (conteo, títulos y autor; nunca como hechos).
 - `buscar_conocimiento`: Busca reglas y notas de negocio por texto.
 - `obtener_conocimiento_por_id`: Consulta entradas específicas por su identificador.
 - `obtener_conocimiento_validado`: Devuelve el conocimiento aprobado para tablas o conceptos.

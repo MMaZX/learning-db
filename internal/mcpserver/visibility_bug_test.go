@@ -22,7 +22,6 @@ func TestVisibilityBug_User3Teaches_User2Recalls(t *testing.T) {
 	user3 := &store.User{ID: 3, Username: "persona 3", Role: store.RoleUser}
 
 	ctxUser2 := ContextWithUser(ctx, user2)
-	ctxUser3 := ContextWithUser(ctx, user3)
 
 	// 1. Persona 2 tiene conocimiento validado previo
 	prop2 := callJSON(t, ctxUser2, c, "proponer_conocimiento", map[string]any{
@@ -34,10 +33,13 @@ func TestVisibilityBug_User3Teaches_User2Recalls(t *testing.T) {
 	})
 
 	// 2. Persona 3 enseña un nuevo concepto ("vendedor")
-	prop3 := callJSON(t, ctxUser3, c, "proponer_conocimiento", map[string]any{
-		"concepto": "vendedor", "contexto": "ventas", "afirmacion": "vendedor sale de pedido.usuario_id",
+	id3, err := s.ProposeKnowledge(ctx, store.Knowledge{
+		Subject: "vendedor", Context: "ventas", Claim: "vendedor sale de pedido.usuario_id",
+		Version: 1, TaughtBy: user3.Username,
 	})
-	id3 := int64(prop3["id"].(float64))
+	if err != nil {
+		t.Fatalf("error sembrando propuesta de persona 3: %v", err)
+	}
 
 	// Verificamos que id3 quedó como 'proposed'
 	k3, err := s.GetKnowledge(ctx, id3)
@@ -69,6 +71,30 @@ func TestVisibilityBug_User3Teaches_User2Recalls(t *testing.T) {
 		}
 		if ids[id3] {
 			t.Fatalf("persona 2 no debería ver el conocimiento de persona 3 (id=%d) mientras siga en status='proposed'", id3)
+		}
+	})
+
+	t.Run("pendientes_se_avisan_con_conteo_titulo_y_autor", func(t *testing.T) {
+		res := callJSON(t, ctxUser2, c, "recordar_contexto", map[string]any{
+			"tarea": "quién es el vendedor de una venta", "contexto": "ventas",
+		})
+		pend, ok := res["pendientes_de_validar"].(map[string]any)
+		if !ok {
+			t.Fatalf("se esperaba pendientes_de_validar, respuesta: %v", res)
+		}
+		if got := int(pend["conteo"].(float64)); got != 1 {
+			t.Fatalf("conteo = %d, se esperaba 1", got)
+		}
+		items, _ := pend["items"].([]any)
+		if len(items) != 1 {
+			t.Fatalf("items = %v, se esperaba 1", items)
+		}
+		item := items[0].(map[string]any)
+		if int64(item["id"].(float64)) != id3 || item["concepto"] != "vendedor" || item["ensenado_por"] != "persona 3" {
+			t.Fatalf("item pendiente inesperado: %v", item)
+		}
+		if _, leaked := item["afirmacion"]; leaked {
+			t.Fatalf("el pendiente no debe exponer la afirmación como hecho: %v", item)
 		}
 	})
 
